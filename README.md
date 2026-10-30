@@ -2,7 +2,7 @@
 
 Business expenses and mileage log for **Hanslip Technical Services**. It runs on the UK tax year (6 April – 5 April) and gives you a record you can hand to HMRC or your accountant.
 
-It runs as a desktop app on Mac and Windows, and also as a web page. Your records are **never stored in this repository**. They live in **OneDrive › HTS Expenses**, so both computers see the same data.
+It runs as a desktop app on Mac and Windows, and on iPhone as a home-screen web app. Your records are **never stored in this repository**. They live in **Dropbox › Apps › (app name) › HTS Expenses**, so every device sees the same data.
 
 ## Desktop app (recommended)
 
@@ -14,8 +14,7 @@ It runs as a desktop app on Mac and Windows, and also as a web page. Your record
   - It adds HTS Ledger to the Start menu and desktop.
 
 **Data**
-- On first start it finds OneDrive by itself and saves to **OneDrive › HTS Expenses**. Nothing to set up and no reconnecting.
-- To use a different folder: **Sync & backup → Choose a different folder…**
+- On first start it uses **OneDrive › HTS Expenses** if OneDrive is set up. To use Dropbox instead: **Sync & backup → Choose a different folder…** and pick **Dropbox › Apps › (app name) › HTS Expenses** (do this on both computers).
 
 **Getting installers**
 - Every push to `main` builds both installers on GitHub (**Actions** tab → latest run → **Artifacts**).
@@ -32,11 +31,21 @@ npm start          # run without building
 
 On the Mac, `dist:mac` builds in a temporary folder and copies the installer back. That's because Documents is synced with iCloud, and iCloud's file tags stop macOS signing the app.
 
-## Web version
+## iPhone
+
+1. In **Safari**, open `https://twistedgenetics.github.io/Expenses-App/`.
+2. Tap **Share → Add to Home Screen → Add**. Open **HTS Ledger** from the home screen from now on.
+3. Go to **Sync & backup → Connect Dropbox**. Sign in, tap **Allow**, copy the code Dropbox shows, come back and paste it in, then tap **Finish**.
+
+The app finds the **HTS Expenses** folder by itself and stays in step with the Mac and PC. It can only see its own folder, **Dropbox › Apps › (app name)**, which Dropbox creates the first time you connect. The HTS Expenses folder must be inside it. Receipt photos can be taken with the camera.
+
+**Setting up Dropbox sign-in (once, by the developer):** at dropbox.com/developers/apps create an app with **Scoped access** and **App folder** (not Full Dropbox). On its **Permissions** tab tick `files.metadata.read`, `files.content.read` and `files.content.write`, then **Submit**. Put its **App key** in `DROPBOX_APP_KEY` in `index.html`. The app key isn't secret; the app signs in with PKCE and has no app secret.
+
+## Web version (computer)
 
 1. **Open the app** at the GitHub Pages address (see "Publishing" below) in **Google Chrome** or **Microsoft Edge**. Those two browsers can link to a folder; Safari and Firefox can't.
 2. **Install it (optional).** Click the install icon in the address bar (Chrome: ⊕ "Install HTS Ledger"; Edge: "App available"). It then opens in its own window from the Dock (Mac) or Start menu (PC).
-3. **Link your data folder.** Go to **Sync & backup → Choose data folder…** and pick `OneDrive/HTS Expenses` on **both** computers.
+3. **Link your data folder.** Go to **Sync & backup → Choose data folder…** and pick `Dropbox/Apps/(app name)/HTS Expenses` on **both** computers. Or use **Connect Dropbox** instead, which works in any browser.
    - The app saves `data.json` and a `receipts` folder there after every change.
    - It picks up the other computer's changes when you open it or switch back to it.
    - After a browser restart, click **Reconnect** once to give it access again.

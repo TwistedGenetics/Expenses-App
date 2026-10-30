@@ -1,5 +1,5 @@
 // Keeps the app working offline. Always tries the network first so updates arrive straight away.
-const CACHE = 'hts-ledger-v2';
+const CACHE = 'hts-ledger-v3';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'rules.json', 'vendor/xlsx.full.min.js', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

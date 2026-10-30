@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HTS Expense Ledger</title>
 <meta name="theme-color" content="#1f5f4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="HTS Ledger">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -63,7 +66,15 @@ td input,td select{padding:5px 7px}
 .muted{color:var(--muted)}
 .hidden{display:none!important}
 .filters{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-bottom:10px}
-@media (max-width:640px){.filters{grid-template-columns:1fr}}
+@media (max-width:640px){
+  .filters{grid-template-columns:1fr}
+  input,select,textarea{font-size:16px}
+  nav{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -16px 16px;padding:0 16px}
+  nav button{flex:none}
+  header{padding:10px 16px}
+  .tiles{grid-template-columns:1fr 1fr;gap:10px}
+  .tile .v{font-size:19px}
+}
 .sync{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
 .dot.ok{background:var(--accent)} .dot.warn{background:var(--warn)}
@@ -223,11 +234,11 @@ ol.steps li{margin-bottom:6px}
 
   <!-- SYNC -->
   <section id="tab-sync" class="hidden">
-    <div class="panel">
+    <div class="panel" id="folderPanel">
       <h2>Use it on your Mac and your PC</h2>
       <div id="fsSupported">
-        <p style="margin-top:0" id="nativeIntro" class="hidden">Your records and receipt photos are saved automatically to the folder below after every change. Point the app on your other computer at the same OneDrive folder and both stay in step – changes made on the other computer appear when you open the app or switch back to it.</p>
-        <p style="margin-top:0" id="webIntro">Pick a folder that OneDrive (or iCloud/Dropbox) keeps in step between your computers – for example <b>OneDrive › HTS Expenses</b>. The app saves your records and receipt photos into that folder after every change, and reads the other computer's changes whenever you open it or switch back to it.</p>
+        <p style="margin-top:0" id="nativeIntro" class="hidden">Your records and receipt photos are saved automatically to the folder below after every change. Point the app on your other computer at the same Dropbox folder and both stay in step – changes made on the other computer appear when you open the app or switch back to it.</p>
+        <p style="margin-top:0" id="webIntro">Pick a folder that Dropbox (or OneDrive/iCloud) keeps in step between your computers – for example <b>Dropbox › HTS Expenses</b>. The app saves your records and receipt photos into that folder after every change, and reads the other computer's changes whenever you open it or switch back to it.</p>
         <div class="row">
           <button class="btn primary" id="connectBtn">Choose data folder…</button>
           <button class="btn hidden" id="reconnectBtn">Reconnect to folder</button>
@@ -237,7 +248,32 @@ ol.steps li{margin-bottom:6px}
         </div>
         <p class="muted" id="syncDetail" style="font-size:13px;margin-bottom:0"></p>
       </div>
-      <div id="fsUnsupported" class="note warn hidden" style="margin:0">This browser can't link to a folder. Open the app in <b>Google Chrome</b> or <b>Microsoft Edge</b> (on Mac or PC) for automatic sync, or use a transfer file below.</div>
+      <div id="fsUnsupported" class="note warn hidden" style="margin:0">This browser can't link to a folder on this device. Use <b>Dropbox</b> below to stay in step with your Mac and PC, or a transfer file.</div>
+    </div>
+    <div class="panel" id="dbxPanel">
+      <h2>Dropbox (iPhone, or any web browser)</h2>
+      <p style="margin-top:0">Sign in to Dropbox once and this device reads and saves the same <b>HTS Expenses</b> folder your Mac and PC use. The app can only see its own folder in <b>Dropbox › Apps</b> – nothing else in your Dropbox.</p>
+      <div id="dbxNoKey" class="note warn hidden" style="margin:0">Dropbox sign-in hasn't been set up for this app yet.</div>
+      <div id="dbxOff">
+        <ol class="steps" style="margin-bottom:12px">
+          <li>Tap <b>Connect Dropbox</b>. Dropbox opens – sign in if asked, then tap <b>Allow</b>.</li>
+          <li>Dropbox shows a code. Copy it, come back here and paste it in the box.</li>
+        </ol>
+        <div class="row">
+          <a class="btn primary" id="dbxConnect" href="#" target="_blank" rel="noopener" style="text-decoration:none">Connect Dropbox</a>
+        </div>
+        <div class="row hidden" id="dbxCodeRow" style="margin-top:10px">
+          <input id="dbxCode" placeholder="Paste the Dropbox code here" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;min-width:200px">
+          <button class="btn primary" id="dbxFinishBtn">Finish</button>
+        </div>
+      </div>
+      <div id="dbxOn" class="hidden">
+        <p style="margin-top:0" id="dbxDetail"></p>
+        <div class="row">
+          <button class="btn primary" id="dbxSyncBtn">Sync now</button>
+          <button class="btn danger" id="dbxOffBtn">Disconnect Dropbox</button>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <h2>Transfer file (manual)</h2>
@@ -470,14 +506,15 @@ const FS_OK=!!NATIVE||'showDirectoryPicker' in window;
 const SYNC={dir:null,folderName:'',state:'off',last:null,error:'',busy:false,timer:null,pending:false};
 const b64ToDataUrl=(b64,name)=>`data:${/\.pdf$/i.test(name)?'application/pdf':'image/jpeg'};base64,${b64}`;
 const dataUrlToB64=u=>String(u).split(',')[1];
-// One interface over both kinds of folder
-const STORE=NATIVE?{
+// One interface over every kind of folder (desktop app, browser folder, Dropbox)
+const NATIVE_STORE=NATIVE&&{
   readText:()=>NATIVE.readData(),
   writeText:t=>NATIVE.writeData(t),
   listReceipts:()=>NATIVE.listReceipts(),
   writeReceipt:(name,dataUrl)=>NATIVE.writeReceipt(name,dataUrlToB64(dataUrl)),
   readReceipt:async name=>{ const b=await NATIVE.readReceipt(name); return b?b64ToDataUrl(b,name):null; },
-}:{
+};
+const FOLDER_STORE={
   readText:async()=>{ try{ return await (await (await SYNC.dir.getFileHandle(DATA_FILE)).getFile()).text(); }catch(e){ if(e.name==='NotFoundError') return null; throw e; } },
   writeText:async t=>{ const w=await (await SYNC.dir.getFileHandle(DATA_FILE,{create:true})).createWritable(); await w.write(t); await w.close(); },
   rdir:()=>SYNC.dir.getDirectoryHandle('receipts',{create:true}),
@@ -485,12 +522,110 @@ const STORE=NATIVE?{
   writeReceipt:async function(name,dataUrl){ const w=await (await (await this.rdir()).getFileHandle(name,{create:true})).createWritable(); await w.write(await dataUrlToBlob(dataUrl)); await w.close(); },
   readReceipt:async function(name){ try{ return await blobToDataUrl(await (await (await this.rdir()).getFileHandle(name)).getFile()); }catch(e){ return null; } },
 };
+
+/* ---------- Dropbox (iPhone, or any browser) ----------
+   Sign in once: Dropbox shows a code, you paste it in. After that the app reads and
+   writes the same HTS Expenses folder the Mac and PC use, through Dropbox's web API. */
+const DROPBOX_APP_KEY='gagmpziw0739lid';
+const DBX_KEY='hts-dropbox';
+const dbxAuth={
+  get(){ try{ return JSON.parse(localStorage.getItem(DBX_KEY))||null; }catch(e){ return null; } },
+  set(v){ try{ v?localStorage.setItem(DBX_KEY,JSON.stringify(v)):localStorage.removeItem(DBX_KEY); }catch(e){} },
+};
+const DBX_OK=!NATIVE&&!!DROPBOX_APP_KEY&&!!(window.crypto&&crypto.subtle);
+const b64url=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const apiArg=o=>JSON.stringify(o).replace(/[\u007f-\uffff]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
+const dbxPath=()=>dbxAuth.get()?.path??'';
+let DBX_VERIFIER=null;
+async function dbxPrepare(){ // ready the sign-in link in advance: Safari blocks pop-ups opened after a delay
+  if(!DBX_OK) return;
+  DBX_VERIFIER=b64url(crypto.getRandomValues(new Uint8Array(48)));
+  const ch=b64url(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(DBX_VERIFIER)));
+  $('#dbxConnect').href='https://www.dropbox.com/oauth2/authorize?'+new URLSearchParams({client_id:DROPBOX_APP_KEY,response_type:'code',code_challenge:ch,code_challenge_method:'S256',token_access_type:'offline'});
+}
+async function dbxTokenCall(params){
+  const r=await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',body:new URLSearchParams({client_id:DROPBOX_APP_KEY,...params})});
+  return r.ok?r.json():null;
+}
+async function dbxToken(force){
+  const a=dbxAuth.get(); if(!a) throw new Error('Not signed in to Dropbox');
+  if(!force&&a.access&&a.exp>Date.now()+60000) return a.access;
+  const j=await dbxTokenCall({grant_type:'refresh_token',refresh_token:a.refresh});
+  if(!j) throw new Error('Dropbox sign-in has expired. Disconnect Dropbox and connect it again.');
+  a.access=j.access_token; a.exp=Date.now()+j.expires_in*1000; dbxAuth.set(a); return a.access;
+}
+// Calls one Dropbox endpoint. missingOk: return null when the file or folder isn't there.
+async function dbx(endpoint,{arg=null,body,content=false,missingOk=false}={}){
+  for(let attempt=0;attempt<2;attempt++){
+    const headers={Authorization:'Bearer '+await dbxToken(attempt>0)}, init={method:'POST',headers};
+    if(content){ headers['Dropbox-API-Arg']=apiArg(arg); if(body!==undefined){ headers['Content-Type']='application/octet-stream'; init.body=body; } }
+    else { headers['Content-Type']='application/json'; init.body=JSON.stringify(arg); }
+    const r=await fetch((content?'https://content.dropboxapi.com/2/':'https://api.dropboxapi.com/2/')+endpoint,init);
+    if(r.status===401&&attempt===0) continue; // access expired early: refresh once
+    if(r.ok) return r;
+    const text=await r.text();
+    if(r.status===409&&missingOk&&/not_found/.test(text)) return null;
+    throw new Error(`Dropbox said: ${text.slice(0,160)||r.status}`);
+  }
+}
+const asType=(blob,name)=>new Blob([blob],{type:/\.pdf$/i.test(name)?'application/pdf':'image/jpeg'});
+const DBX_STORE={
+  readText:async()=>{ const r=await dbx('files/download',{arg:{path:`${dbxPath()}/${DATA_FILE}`},content:true,missingOk:true}); return r?r.text():null; },
+  writeText:async t=>{ await dbx('files/upload',{arg:{path:`${dbxPath()}/${DATA_FILE}`,mode:'overwrite',mute:true},body:new Blob([t]),content:true}); },
+  listReceipts:async()=>{
+    const out=[]; const r=await dbx('files/list_folder',{arg:{path:`${dbxPath()}/receipts`},missingOk:true}); if(!r) return out;
+    let j=await r.json();
+    for(;;){ out.push(...j.entries.filter(e=>e['.tag']==='file').map(e=>e.name)); if(!j.has_more) break; j=await (await dbx('files/list_folder/continue',{arg:{cursor:j.cursor}})).json(); }
+    return out;
+  },
+  writeReceipt:async(name,dataUrl)=>{ await dbx('files/upload',{arg:{path:`${dbxPath()}/receipts/${name}`,mode:'overwrite',mute:true},body:await dataUrlToBlob(dataUrl),content:true}); },
+  readReceipt:async name=>{ const r=await dbx('files/download',{arg:{path:`${dbxPath()}/receipts/${name}`},content:true,missingOk:true}); return r?blobToDataUrl(asType(await r.blob(),name)):null; },
+};
+// Finds the folder holding this app's data.json. The Dropbox app only has "App folder"
+// access, so paths are inside Dropbox › Apps › <app name>. Returns null if it isn't there yet.
+async function dbxFindFolder(){
+  const r=await dbx('files/search_v2',{arg:{query:DATA_FILE,options:{filename_only:true,max_results:100,file_status:'active'}}});
+  const all=(await r.json()).matches.map(m=>m.metadata?.metadata?.path_display).filter(p=>p&&/\/data\.json$/i.test(p)).map(p=>p.replace(/\/data\.json$/i,''));
+  const pick=all.filter(p=>/\/hts expenses$/i.test(p)); if(all.includes('')) pick.push('');
+  if(pick.length===1) return pick[0];
+  if(pick.length>1){ const a=prompt('Which Dropbox folder holds your records? Type its number:\n'+pick.map((p,i)=>`${i+1}. ${dbxLabel(p)}`).join('\n'),'1'); return pick[(+a||1)-1]??pick[0]; }
+  return null;
+}
+const DBX_MISSING="You're signed in to Dropbox, but your HTS Expenses folder isn't in the app's own Dropbox folder yet. On your Mac, copy it into Dropbox › Apps › (the app's name), then tap Sync now.";
+// Looks for the folder again if it wasn't there when you signed in
+async function dbxEnsureFolder(){
+  const a=dbxAuth.get(); if(a.path!=null) return;
+  const p=await dbxFindFolder(); if(p==null) throw new Error(DBX_MISSING);
+  a.path=p; dbxAuth.set(a); SYNC.folderName=dbxLabel(p); logChange('connect','sync folder',`Linked ${SYNC.folderName}`);
+}
+const dbxLabel=p=>p==null?'Dropbox':'Dropbox app folder'+p.split('/').filter(Boolean).map(x=>' › '+x).join('');
+function useDropbox(){ STORE=DBX_STORE; SYNC.kind='dropbox'; SYNC.dir=true; SYNC.folderName=dbxLabel(dbxAuth.get()?.path); }
+async function dbxFinish(){
+  const code=$('#dbxCode').value.trim(); if(!code) return $('#dbxCode').focus();
+  $('#dbxFinishBtn').disabled=true;
+  try{
+    const j=await dbxTokenCall({grant_type:'authorization_code',code,code_verifier:DBX_VERIFIER});
+    if(!j) throw new Error('Dropbox didn\'t accept that code. Tap Connect Dropbox again and use the new code it shows.');
+    dbxAuth.set({refresh:j.refresh_token,access:j.access_token,exp:Date.now()+j.expires_in*1000});
+    $('#dbxCode').value=''; $('#dbxCodeRow').classList.add('hidden');
+    await idb.hdel('dir').catch(()=>{}); // Dropbox replaces any browser folder link
+    useDropbox(); await syncNow();
+  }catch(e){ dbxAuth.set(null); alert(e.message); dbxPrepare(); }
+  $('#dbxFinishBtn').disabled=false;
+}
+async function dbxDisconnect(){
+  if(!confirm('Disconnect Dropbox on this device? Your records stay in Dropbox and on this device.')) return;
+  dbx('auth/token/revoke').catch(()=>{});
+  await new Promise(r=>setTimeout(r,300));
+  dbxAuth.set(null); STORE=FOLDER_STORE; SYNC.kind=null; SYNC.dir=null; setSync('off'); dbxPrepare();
+}
+let STORE=NATIVE?NATIVE_STORE:FOLDER_STORE;
 function setSync(state,error=''){ SYNC.state=state; SYNC.error=error; renderSync(); }
 async function connectFolder(){
   try{
     if(NATIVE){ const f=await NATIVE.chooseFolder(); if(!f) return; await restoreFolder(); logChange('connect','sync folder',`Linked data folder "${SYNC.folderName}"`); return syncNow(); }
     const dir=await window.showDirectoryPicker({id:'hts-ledger',mode:'readwrite'});
-    SYNC.dir=dir; SYNC.folderName=dir.name; await idb.hput('dir',dir);
+    dbxAuth.set(null); STORE=FOLDER_STORE; SYNC.kind='folder'; SYNC.dir=dir; SYNC.folderName=dir.name; await idb.hput('dir',dir);
     logChange('connect','sync folder',`Linked data folder "${dir.name}"`);
     await syncNow();
   }catch(e){ if(e.name!=='AbortError') setSync('error',e.message); }
@@ -502,14 +637,15 @@ async function restoreFolder(){
     SYNC.folderName=f.name; SYNC.folderPath=f.folder; SYNC.dir=true;
     return syncNow();
   }
+  if(DBX_OK&&dbxAuth.get()){ useDropbox(); return syncNow(); }
   if(!FS_OK) return;
   const dir=await idb.hget('dir').catch(()=>null); if(!dir) return setSync('off');
-  SYNC.dir=dir; SYNC.folderName=dir.name;
+  SYNC.dir=dir; SYNC.folderName=dir.name; SYNC.kind='folder';
   const perm=await dir.queryPermission({mode:'readwrite'});
   if(perm==='granted') await syncNow(); else setSync('needs-permission');
 }
 async function reconnect(){
-  if(NATIVE) return restoreFolder();
+  if(NATIVE||SYNC.kind==='dropbox') return restoreFolder();
   if(!SYNC.dir) return connectFolder();
   const perm=await SYNC.dir.requestPermission({mode:'readwrite'});
   if(perm==='granted') await syncNow(); else setSync('needs-permission');
@@ -525,7 +661,8 @@ async function syncNow(){
   if(SYNC.busy){ SYNC.pending=true; return; }
   SYNC.busy=true; setSync('syncing');
   try{
-    if(!NATIVE&&await SYNC.dir.queryPermission({mode:'readwrite'})!=='granted'){ SYNC.busy=false; return setSync('needs-permission'); }
+    if(SYNC.kind==='dropbox') await dbxEnsureFolder();
+    if(SYNC.kind==='folder'&&await SYNC.dir.queryPermission({mode:'readwrite'})!=='granted'){ SYNC.busy=false; return setSync('needs-permission'); }
     // 1. read the other computer's copy and combine
     const text=await STORE.readText(), remote=text?JSON.parse(text):null;
     if(remote&&remote.app!=='hts-ledger') throw new Error('data.json in that folder is not from this app');
@@ -732,7 +869,13 @@ function renderSync(){
   $('#connectBtn').textContent=SYNC.dir?'Choose a different folder…':'Choose data folder…';
   $('#reconnectBtn').classList.toggle('hidden',SYNC.state!=='needs-permission');
   $('#syncNowBtn').classList.toggle('hidden',SYNC.state!=='ok');
-  $('#disconnectBtn').classList.toggle('hidden',!SYNC.dir||!!NATIVE);
+  $('#disconnectBtn').classList.toggle('hidden',!SYNC.dir||!!NATIVE||SYNC.kind==='dropbox');
+  const onDbx=SYNC.kind==='dropbox';
+  $('#dbxPanel').classList.toggle('hidden',!!NATIVE);
+  $('#folderPanel').classList.toggle('hidden',!FS_OK&&DBX_OK); // phone: Dropbox only
+  $('#dbxNoKey').classList.toggle('hidden',DBX_OK); $('#dbxOff').classList.toggle('hidden',!DBX_OK||onDbx); $('#dbxOn').classList.toggle('hidden',!onDbx);
+  if(onDbx) $('#dbxDetail').textContent=SYNC.state==='error'?`Connected to ${SYNC.folderName}. Last sync failed: ${SYNC.error}`
+    :`Connected to ${SYNC.folderName}.${SYNC.last?' Last synced '+new Date(SYNC.last).toLocaleTimeString('en-GB')+'.':''}`;
   $('#openFolderBtn').classList.toggle('hidden',!NATIVE||!SYNC.dir);
   $('#nativeIntro').classList.toggle('hidden',!NATIVE); $('#webIntro').classList.toggle('hidden',!!NATIVE);
   $('#syncDetail').textContent=SYNC.state==='ok'?`Linked to folder "${NATIVE&&SYNC.folderPath?SYNC.folderPath:dir}". Last synced ${SYNC.last?new Date(SYNC.last).toLocaleTimeString('en-GB'):''}.`
@@ -747,9 +890,11 @@ function renderNotices(){
   else if(SYNC.state==='error') n.push(`<div class="note warn">Couldn't sync with your data folder: ${esc(SYNC.error)} <button class="btn small" onclick="syncNow()">Try again</button></div>`);
   else if(SYNC.state==='off'){
     const empty=!DATA.expenses.length&&!DATA.journeys.length;
-    if(empty) n.push(`<div class="note"><b>Getting started:</b> ${FS_OK?'if you already use the app on another computer, choose the same OneDrive data folder to pick up all your records.':'load a transfer file from your other computer, or start adding entries.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':"document.querySelector('[data-tab=sync]').click()"}">${FS_OK?'Choose data folder':'Sync & backup'}</button></div>`);
+    if(empty&&DBX_OK&&!FS_OK) n.push(`<div class="note"><b>Getting started:</b> connect Dropbox to pick up all the records from your Mac and PC. <button class="btn small" onclick="document.querySelector('[data-tab=sync]').click()">Connect Dropbox</button></div>`);
+    else if(empty) n.push(`<div class="note"><b>Getting started:</b> ${FS_OK?'if you already use the app on another computer, choose the same Dropbox data folder to pick up all your records.':'load a transfer file from your other computer, or start adding entries.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':"document.querySelector('[data-tab=sync]').click()"}">${FS_OK?'Choose data folder':'Sync & backup'}</button></div>`);
     else { const c=DATA.log.filter(l=>!DATA.lastBackup||l.ts>DATA.lastBackup).length;
-      if(!DATA.lastBackup||c>=5) n.push(`<div class="note warn">Your records are only in this browser. ${FS_OK?'Link a OneDrive folder to keep them safe and share them with your other computer.':'Save a transfer file to keep them safe.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':'backup()'}">${FS_OK?'Choose data folder':'Save file'}</button></div>`); }
+      if(DBX_OK&&!FS_OK&&(!DATA.lastBackup||c>=5)) n.push(`<div class="note warn">Your records are only on this device. Connect Dropbox to keep them safe and share them with your Mac and PC. <button class="btn small" onclick="document.querySelector('[data-tab=sync]').click()">Connect Dropbox</button></div>`);
+      else if(!DATA.lastBackup||c>=5) n.push(`<div class="note warn">Your records are only in this browser. ${FS_OK?'Link a Dropbox folder to keep them safe and share them with your other computer.':'Save a transfer file to keep them safe.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':'backup()'}">${FS_OK?'Choose data folder':'Save file'}</button></div>`); }
   }
   const upd=pendingRuleUpdates();
   if(upd.length) n.push(`<div class="note warn"><b>Updated HMRC mileage rates are available.</b> ${upd.map(r=>`From ${fmtDate(r.from)}: ${pence(r.r1)} up to ${num(r.threshold)} miles, then ${pence(r.r2)}`).join('; ')}.${RULES_FEED.notes?.length?`<div class="muted" style="margin-top:4px">${RULES_FEED.notes.map(esc).join(' ')}</div>`:''} <div class="row" style="margin-top:8px"><button class="btn small primary" onclick="applyRuleUpdates()">Apply to my records</button><button class="btn small" onclick="dismissRuleUpdates()">Not now</button></div></div>`);
@@ -941,6 +1086,9 @@ $('#restoreFile').addEventListener('change',async e=>{
 });
 $('#connectBtn').onclick=connectFolder; $('#reconnectBtn').onclick=reconnect; $('#syncNowBtn').onclick=syncNow; $('#disconnectBtn').onclick=disconnect;
 $('#openFolderBtn').onclick=()=>NATIVE&&NATIVE.openFolder();
+$('#dbxConnect').addEventListener('click',e=>{ if(!DBX_VERIFIER){ e.preventDefault(); return; } $('#dbxCodeRow').classList.remove('hidden'); setTimeout(()=>$('#dbxCode').focus(),300); });
+$('#dbxFinishBtn').onclick=dbxFinish; $('#dbxCode').addEventListener('keydown',e=>{ if(e.key==='Enter') dbxFinish(); });
+$('#dbxSyncBtn').onclick=syncNow; $('#dbxOffBtn').onclick=dbxDisconnect;
 
 /* ---------- Exports ---------- */
 function exportRows(){
@@ -1017,6 +1165,7 @@ $('#printBtn').onclick=()=>{
 resetExpForm(); resetMilForm();
 renderAll();
 try{ const t=localStorage.getItem('hts-tab'); if(t) document.querySelector(`#tabs button[data-tab="${t}"]`)?.click(); }catch(e){}
+dbxPrepare();
 restoreFolder();
 checkRules(false);
 if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
