@@ -226,11 +226,13 @@ ol.steps li{margin-bottom:6px}
     <div class="panel">
       <h2>Use it on your Mac and your PC</h2>
       <div id="fsSupported">
-        <p style="margin-top:0">Pick a folder that OneDrive (or iCloud/Dropbox) keeps in step between your computers – for example <b>OneDrive › HTS Expenses</b>. The app saves your records and receipt photos into that folder after every change, and reads the other computer's changes whenever you open it or switch back to it.</p>
+        <p style="margin-top:0" id="nativeIntro" class="hidden">Your records and receipt photos are saved automatically to the folder below after every change. Point the app on your other computer at the same OneDrive folder and both stay in step – changes made on the other computer appear when you open the app or switch back to it.</p>
+        <p style="margin-top:0" id="webIntro">Pick a folder that OneDrive (or iCloud/Dropbox) keeps in step between your computers – for example <b>OneDrive › HTS Expenses</b>. The app saves your records and receipt photos into that folder after every change, and reads the other computer's changes whenever you open it or switch back to it.</p>
         <div class="row">
           <button class="btn primary" id="connectBtn">Choose data folder…</button>
           <button class="btn hidden" id="reconnectBtn">Reconnect to folder</button>
           <button class="btn hidden" id="syncNowBtn">Sync now</button>
+          <button class="btn hidden" id="openFolderBtn">Show folder</button>
           <button class="btn hidden danger" id="disconnectBtn">Disconnect</button>
         </div>
         <p class="muted" id="syncDetail" style="font-size:13px;margin-bottom:0"></p>
@@ -314,6 +316,7 @@ ol.steps li{margin-bottom:6px}
    <folder>/receipts/. Records are merged by id, newest wins.
    ========================================================= */
 const STORE_KEY='hts-ledger-v2', OLD_KEY='hts-ledger-v1', DATA_FILE='data.json';
+const RULES_URL='https://raw.githubusercontent.com/TwistedGenetics/Expenses-App/main/rules.json';
 const HMRC={
   goods:'Cost of goods / materials', travel:'Car, van & travel expenses', admin:'Phone, stationery & office costs',
   advert:'Advertising & marketing', prof:'Accountancy, legal & professional fees', finance:'Bank & finance charges',
@@ -459,31 +462,60 @@ const dataUrlToBlob=async u=>(await fetch(u)).blob();
 const blobToDataUrl=b=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
 const rcptName=(id,data)=>`${id}.${String(data).startsWith('data:application/pdf')?'pdf':'jpg'}`;
 
-/* ---------- Folder sync (Chrome / Edge) ---------- */
-const FS_OK='showDirectoryPicker' in window;
-const SYNC={dir:null,state:'off',last:null,error:'',busy:false,timer:null,pending:false};
+/* ---------- Folder sync ----------
+   Desktop app: the wrapper reads/writes the folder directly (window.htsNative).
+   Browser (Chrome/Edge): File System Access API, needs a click to reconnect after a restart. */
+const NATIVE=window.htsNative||null;
+const FS_OK=!!NATIVE||'showDirectoryPicker' in window;
+const SYNC={dir:null,folderName:'',state:'off',last:null,error:'',busy:false,timer:null,pending:false};
+const b64ToDataUrl=(b64,name)=>`data:${/\.pdf$/i.test(name)?'application/pdf':'image/jpeg'};base64,${b64}`;
+const dataUrlToB64=u=>String(u).split(',')[1];
+// One interface over both kinds of folder
+const STORE=NATIVE?{
+  readText:()=>NATIVE.readData(),
+  writeText:t=>NATIVE.writeData(t),
+  listReceipts:()=>NATIVE.listReceipts(),
+  writeReceipt:(name,dataUrl)=>NATIVE.writeReceipt(name,dataUrlToB64(dataUrl)),
+  readReceipt:async name=>{ const b=await NATIVE.readReceipt(name); return b?b64ToDataUrl(b,name):null; },
+}:{
+  readText:async()=>{ try{ return await (await (await SYNC.dir.getFileHandle(DATA_FILE)).getFile()).text(); }catch(e){ if(e.name==='NotFoundError') return null; throw e; } },
+  writeText:async t=>{ const w=await (await SYNC.dir.getFileHandle(DATA_FILE,{create:true})).createWritable(); await w.write(t); await w.close(); },
+  rdir:()=>SYNC.dir.getDirectoryHandle('receipts',{create:true}),
+  listReceipts:async function(){ const out=[]; for await (const [n] of (await this.rdir()).entries()) out.push(n); return out; },
+  writeReceipt:async function(name,dataUrl){ const w=await (await (await this.rdir()).getFileHandle(name,{create:true})).createWritable(); await w.write(await dataUrlToBlob(dataUrl)); await w.close(); },
+  readReceipt:async function(name){ try{ return await blobToDataUrl(await (await (await this.rdir()).getFileHandle(name)).getFile()); }catch(e){ return null; } },
+};
 function setSync(state,error=''){ SYNC.state=state; SYNC.error=error; renderSync(); }
 async function connectFolder(){
   try{
+    if(NATIVE){ const f=await NATIVE.chooseFolder(); if(!f) return; await restoreFolder(); logChange('connect','sync folder',`Linked data folder "${SYNC.folderName}"`); return syncNow(); }
     const dir=await window.showDirectoryPicker({id:'hts-ledger',mode:'readwrite'});
-    SYNC.dir=dir; await idb.hput('dir',dir);
+    SYNC.dir=dir; SYNC.folderName=dir.name; await idb.hput('dir',dir);
     logChange('connect','sync folder',`Linked data folder "${dir.name}"`);
     await syncNow();
   }catch(e){ if(e.name!=='AbortError') setSync('error',e.message); }
 }
 async function restoreFolder(){
+  if(NATIVE){
+    const f=await NATIVE.getFolder();
+    if(!f.folder) return setSync('off');
+    SYNC.folderName=f.name; SYNC.folderPath=f.folder; SYNC.dir=true;
+    return syncNow();
+  }
   if(!FS_OK) return;
   const dir=await idb.hget('dir').catch(()=>null); if(!dir) return setSync('off');
-  SYNC.dir=dir;
+  SYNC.dir=dir; SYNC.folderName=dir.name;
   const perm=await dir.queryPermission({mode:'readwrite'});
   if(perm==='granted') await syncNow(); else setSync('needs-permission');
 }
 async function reconnect(){
+  if(NATIVE) return restoreFolder();
   if(!SYNC.dir) return connectFolder();
   const perm=await SYNC.dir.requestPermission({mode:'readwrite'});
   if(perm==='granted') await syncNow(); else setSync('needs-permission');
 }
 async function disconnect(){
+  if(NATIVE) return connectFolder(); // desktop app always has a folder; this lets you pick another
   if(!confirm('Stop syncing with this folder? Your data stays in this browser and in the folder.')) return;
   await idb.hdel('dir'); SYNC.dir=null; setSync('off');
 }
@@ -493,26 +525,21 @@ async function syncNow(){
   if(SYNC.busy){ SYNC.pending=true; return; }
   SYNC.busy=true; setSync('syncing');
   try{
-    if(await SYNC.dir.queryPermission({mode:'readwrite'})!=='granted'){ SYNC.busy=false; return setSync('needs-permission'); }
+    if(!NATIVE&&await SYNC.dir.queryPermission({mode:'readwrite'})!=='granted'){ SYNC.busy=false; return setSync('needs-permission'); }
     // 1. read the other computer's copy and combine
-    let remote=null;
-    try{ const fh=await SYNC.dir.getFileHandle(DATA_FILE); remote=JSON.parse(await (await fh.getFile()).text()); }
-    catch(e){ if(e.name!=='NotFoundError') throw e; }
-    if(remote){ if(remote.app!=='hts-ledger') throw new Error('data.json in that folder is not from this app'); }
+    const text=await STORE.readText(), remote=text?JSON.parse(text):null;
+    if(remote&&remote.app!=='hts-ledger') throw new Error('data.json in that folder is not from this app');
     const before=JSON.stringify([DATA.expenses.length,DATA.journeys.length,DATA.savedAt]);
     if(remote) DATA=mergeData(DATA,remote.data);
     DATA.savedAt=Math.max(DATA.savedAt||0,Date.now());
     try{ localStorage.setItem(STORE_KEY,JSON.stringify(DATA)); }catch(e){}
     // 2. write the combined copy back
-    const fh=await SYNC.dir.getFileHandle(DATA_FILE,{create:true});
-    const w=await fh.createWritable(); await w.write(JSON.stringify({app:'hts-ledger',version:2,savedBy:DEVICE,savedAt:Date.now(),data:DATA})); await w.close();
-    // 3. receipts: upload any this computer has that the folder lacks
-    const rdir=await SYNC.dir.getDirectoryHandle('receipts',{create:true});
-    const inFolder=new Set(); for await (const [name] of rdir.entries()) inFolder.add(name.split('.')[0]);
+    await STORE.writeText(JSON.stringify({app:'hts-ledger',version:2,savedBy:DEVICE,savedAt:Date.now(),data:DATA}));
+    // 3. receipts: copy any this computer has that the folder lacks
+    const inFolder=new Set((await STORE.listReceipts()).map(n=>n.split('.')[0]));
     for(const k of await idb.keys()){
       if(inFolder.has(k)) continue;
-      const r=await idb.get(k); if(!r) continue;
-      const f=await rdir.getFileHandle(rcptName(k,r.data),{create:true}); const ww=await f.createWritable(); await ww.write(await dataUrlToBlob(r.data)); await ww.close();
+      const r=await idb.get(k); if(r) await STORE.writeReceipt(rcptName(k,r.data),r.data);
     }
     SYNC.last=Date.now(); SYNC.busy=false; setSync('ok');
     if(JSON.stringify([DATA.expenses.length,DATA.journeys.length,DATA.savedAt])!==before) renderAll();
@@ -522,9 +549,8 @@ async function syncNow(){
 async function getReceipt(id){
   let r=await idb.get(id).catch(()=>null); if(r) return r;
   if(SYNC.dir&&SYNC.state==='ok'){
-    try{ const rdir=await SYNC.dir.getDirectoryHandle('receipts');
-      for await (const [name,h] of rdir.entries()){ if(name.split('.')[0]===id){ const f=await h.getFile(); r={name,data:await blobToDataUrl(f)}; await idb.put(id,r); return r; } }
-    }catch(e){}
+    try{ const name=(await STORE.listReceipts()).find(n=>n.split('.')[0]===id);
+      if(name){ const data=await STORE.readReceipt(name); if(data){ r={name,data}; await idb.put(id,r); return r; } } }catch(e){}
   }
   return null;
 }
@@ -699,15 +725,17 @@ function renderLists(){
   $('#expQFilter').innerHTML=`<option value="">Whole year</option>`+quarters(YEAR).map(q=>`<option value="${q.q}" ${String(q.q)===qf?'selected':''}>Q${q.q} (${fmtDate(q.from)} – ${fmtDate(q.to)})</option>`).join('');
 }
 function renderSync(){
-  const st=$('#syncStatus'),dir=SYNC.dir?.name;
+  const st=$('#syncStatus'),dir=SYNC.folderName;
   const map={off:['','Not synced'],syncing:['ok',`Syncing…`],ok:['ok',`Synced · ${dir}`],'needs-permission':['warn','Click to reconnect'],error:['warn','Sync problem']};
   const [cls,txt]=map[SYNC.state]; st.innerHTML=`<span class="dot ${cls}"></span><span>${esc(txt)}</span>`; st.style.cursor=SYNC.state==='needs-permission'?'pointer':'default';
   $('#fsSupported').classList.toggle('hidden',!FS_OK); $('#fsUnsupported').classList.toggle('hidden',FS_OK);
   $('#connectBtn').textContent=SYNC.dir?'Choose a different folder…':'Choose data folder…';
   $('#reconnectBtn').classList.toggle('hidden',SYNC.state!=='needs-permission');
   $('#syncNowBtn').classList.toggle('hidden',SYNC.state!=='ok');
-  $('#disconnectBtn').classList.toggle('hidden',!SYNC.dir);
-  $('#syncDetail').textContent=SYNC.state==='ok'?`Linked to folder "${dir}". Last synced ${SYNC.last?new Date(SYNC.last).toLocaleTimeString('en-GB'):''}.`
+  $('#disconnectBtn').classList.toggle('hidden',!SYNC.dir||!!NATIVE);
+  $('#openFolderBtn').classList.toggle('hidden',!NATIVE||!SYNC.dir);
+  $('#nativeIntro').classList.toggle('hidden',!NATIVE); $('#webIntro').classList.toggle('hidden',!!NATIVE);
+  $('#syncDetail').textContent=SYNC.state==='ok'?`Linked to folder "${NATIVE&&SYNC.folderPath?SYNC.folderPath:dir}". Last synced ${SYNC.last?new Date(SYNC.last).toLocaleTimeString('en-GB'):''}.`
     :SYNC.state==='needs-permission'?`Linked to "${dir}" – the browser needs you to allow access again each time it restarts.`
     :SYNC.state==='error'?`Last sync failed: ${SYNC.error}`:'Not linked to a folder yet.';
   $('#lastBackup').textContent=DATA.lastBackup?`Last transfer file saved ${fmtTs(DATA.lastBackup)}`:'';
@@ -715,7 +743,7 @@ function renderSync(){
 }
 function renderNotices(){
   const n=[];
-  if(SYNC.state==='needs-permission') n.push(`<div class="note warn">Your data folder <b>${esc(SYNC.dir?.name)}</b> needs reconnecting so this computer can pick up changes from the other one. <button class="btn small" onclick="reconnect()">Reconnect</button></div>`);
+  if(SYNC.state==='needs-permission') n.push(`<div class="note warn">Your data folder <b>${esc(SYNC.folderName)}</b> needs reconnecting so this computer can pick up changes from the other one. <button class="btn small" onclick="reconnect()">Reconnect</button></div>`);
   else if(SYNC.state==='error') n.push(`<div class="note warn">Couldn't sync with your data folder: ${esc(SYNC.error)} <button class="btn small" onclick="syncNow()">Try again</button></div>`);
   else if(SYNC.state==='off'){
     const empty=!DATA.expenses.length&&!DATA.journeys.length;
@@ -735,8 +763,12 @@ function renderAll(){
 /* ---------- Published rate updates (rules.json in the app's repo) ---------- */
 async function checkRules(manual){
   try{
-    const r=await fetch('rules.json',{cache:'no-store'}); if(!r.ok) throw new Error(r.status);
-    RULES_FEED=await r.json(); renderAll();
+    // Desktop app: read the latest published rates from the GitHub repo, falling back to the copy built into the app
+    const urls=(NATIVE||location.protocol==='file:')?[RULES_URL,'rules.json']:['rules.json'];
+    let feed=null;
+    for(const u of urls){ try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){ feed=await r.json(); break; } }catch(e){} }
+    if(!feed) throw new Error('unavailable');
+    RULES_FEED=feed; renderAll();
     if(manual) alert(pendingRuleUpdates().length?'New rates found – see the notice at the top.':'Your rates are up to date.');
   }catch(e){ if(manual) alert('Could not check for updates (are you offline, or opening the file directly rather than from the website?).'); }
 }
@@ -908,6 +940,7 @@ $('#restoreFile').addEventListener('change',async e=>{
   e.target.value='';
 });
 $('#connectBtn').onclick=connectFolder; $('#reconnectBtn').onclick=reconnect; $('#syncNowBtn').onclick=syncNow; $('#disconnectBtn').onclick=disconnect;
+$('#openFolderBtn').onclick=()=>NATIVE&&NATIVE.openFolder();
 
 /* ---------- Exports ---------- */
 function exportRows(){

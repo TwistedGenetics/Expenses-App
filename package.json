@@ -1,0 +1,72 @@
+{
+  "name": "hts-ledger",
+  "productName": "HTS Ledger",
+  "version": "1.0.0",
+  "description": "Business expenses and mileage for Hanslip Technical Services",
+  "author": "Hanslip Technical Services",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest",
+    "dist:mac": "rm -rf \"$TMPDIR/hts-ledger-dist\" && electron-builder --mac --publish never --config.directories.output=\"$TMPDIR/hts-ledger-dist\" && mkdir -p dist && cp \"$TMPDIR\"/hts-ledger-dist/*.dmg dist/",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.17.0"
+  },
+  "build": {
+    "appId": "uk.co.hanslip.ledger",
+    "productName": "HTS Ledger",
+    "copyright": "Hanslip Technical Services",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "desktop/**",
+      "index.html",
+      "rules.json",
+      "manifest.webmanifest",
+      "icons/**",
+      "vendor/**"
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "identity": null
+    },
+    "dmg": {
+      "title": "HTS Ledger"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "HTS Ledger"
+    },
+    "afterPack": "build/adhoc-sign.js"
+  }
+}

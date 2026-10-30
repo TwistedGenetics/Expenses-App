@@ -5,3 +5,6 @@ receipts/
 private/
 .DS_Store
 .claude/
+node_modules/
+dist/
+HTS_Expense_Ledger.html
