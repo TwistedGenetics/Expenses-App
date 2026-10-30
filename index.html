@@ -1,0 +1,992 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTS Expense Ledger</title>
+<meta name="theme-color" content="#1f5f4a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="vendor/xlsx.full.min.js" defer></script>
+<style>
+:root{
+  --bg:#f5f6f4; --panel:#ffffff; --ink:#1c2321; --muted:#5f6b67; --line:#dde2df;
+  --accent:#1f5f4a; --accent-ink:#ffffff; --accent-soft:#e3efe9; --warn:#9a5b00; --warn-soft:#fdf1dc;
+  --danger:#a23b2a; --chip:#eef1ef;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121615; --panel:#1b211f; --ink:#e7ece9; --muted:#9aa6a1; --line:#2c3532;
+    --accent:#5fb795; --accent-ink:#0d1a15; --accent-soft:#1f3229; --warn:#f0b450; --warn-soft:#3a2d14;
+    --danger:#e57a66; --chip:#242c29;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;font-weight:650}
+header .sub{color:var(--muted);font-size:13px}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+nav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:16px}
+nav button{background:transparent;border:1px solid transparent;color:var(--muted);padding:8px 14px;border-radius:8px;font:inherit;cursor:pointer}
+nav button.on{background:var(--panel);border-color:var(--line);color:var(--ink);font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.panel h2{font-size:15px;margin:0 0 12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.tile .k{color:var(--muted);font-size:12.5px}
+.tile .v{font-size:22px;font-weight:650;margin-top:4px;font-variant-numeric:tabular-nums}
+.tile .n{color:var(--muted);font-size:12px;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+td.num,th.num{text-align:right;white-space:nowrap}
+tr.total td{font-weight:650;border-top:2px solid var(--ink)}
+tr.private td{color:var(--muted)}
+.scroll{overflow-x:auto}
+form.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 12px;align-items:end}
+label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 9px;width:100%}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+td input,td select{padding:5px 7px}
+.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:8px 14px;border-radius:8px;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.small{padding:4px 9px;font-size:13px}
+.btn.danger{color:var(--danger)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.spacer{flex:1}
+.chip{display:inline-block;background:var(--chip);border-radius:20px;padding:1px 8px;font-size:12px;white-space:nowrap}
+.chip.yes{background:var(--accent-soft);color:var(--accent)}
+.note{background:var(--accent-soft);border-radius:10px;padding:12px 14px;font-size:14px;margin-bottom:16px}
+.note.warn{background:var(--warn-soft)}
+.muted{color:var(--muted)}
+.hidden{display:none!important}
+.filters{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;margin-bottom:10px}
+@media (max-width:640px){.filters{grid-template-columns:1fr}}
+.sync{font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.dot.ok{background:var(--accent)} .dot.warn{background:var(--warn)}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);max-width:92vw}
+dialog img{max-width:80vw;max-height:75vh;display:block}
+ol.steps{margin:6px 0 0;padding-left:20px}
+ol.steps li{margin-bottom:6px}
+#printArea{display:none}
+@media print{
+  body{background:#fff;color:#000;font-size:10.5pt}
+  header,nav,.wrap>section,.noprint,.note{display:none!important}
+  #printArea{display:block}
+  #printArea table{font-size:9pt}
+  #printArea th,#printArea td{border-bottom:1px solid #bbb;padding:3px 5px;color:#000}
+  #printArea h1{font-size:16pt;margin:0}
+  #printArea h2{font-size:12pt;margin:18px 0 6px;page-break-after:avoid}
+  .pb{page-break-before:always}
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1 id="coName">Hanslip Technical Services</h1>
+    <div class="sub">Business expenses &amp; mileage record</div>
+  </div>
+  <div class="row">
+    <span class="sync" id="syncStatus"><span class="dot"></span><span>Not synced</span></span>
+    <label style="flex-direction:row;align-items:center;gap:8px">Tax year
+      <select id="yearSel" style="width:auto"></select>
+    </label>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav id="tabs">
+    <button data-tab="dash" class="on">Overview</button>
+    <button data-tab="exp">Expenses</button>
+    <button data-tab="mil">Mileage</button>
+    <button data-tab="rep">HMRC record</button>
+    <button data-tab="sync">Sync &amp; backup</button>
+    <button data-tab="rules">Rates &amp; rules</button>
+    <button data-tab="set">Settings</button>
+  </nav>
+
+  <div id="notices" class="noprint"></div>
+
+  <!-- OVERVIEW -->
+  <section id="tab-dash">
+    <div class="tiles" id="tiles"></div>
+    <div class="panel">
+      <h2>Quarterly updates (Making Tax Digital)</h2>
+      <div class="scroll"><table id="qTable"></table></div>
+    </div>
+    <div class="panel">
+      <h2>By month</h2>
+      <div class="scroll"><table id="mTable"></table></div>
+    </div>
+    <div class="panel">
+      <h2>By HMRC expense category</h2>
+      <div class="scroll"><table id="cTable"></table></div>
+    </div>
+  </section>
+
+  <!-- EXPENSES -->
+  <section id="tab-exp" class="hidden">
+    <div class="panel">
+      <h2 id="expFormTitle">Add an expense</h2>
+      <form class="grid" id="expForm" autocomplete="off">
+        <input type="hidden" name="id">
+        <label>Date<input type="date" name="date" required></label>
+        <label>Supplier / payee<input name="supplier" list="supplierList" required></label>
+        <label>Description<input name="description" required></label>
+        <label>Category<select name="category" id="catSel" required></select></label>
+        <label>Paid with<select name="paidWith">
+          <option>Business card</option><option>Business bank transfer</option><option>Personal card</option><option>Cash</option>
+        </select></label>
+        <label>Receipt / ref no.<input name="receiptRef"></label>
+        <label>Cost (£, incl. VAT)<input type="number" name="cost" step="0.01" min="0" required></label>
+        <label>Business use %<input type="number" name="businessPct" min="0" max="100" step="1" value="100" required></label>
+        <label>Job / client<input name="job" list="jobList"></label>
+        <label>Receipt photo<input type="file" name="receipt" accept="image/*,application/pdf"></label>
+        <label style="grid-column:1/-1">Notes<input name="notes"></label>
+        <div class="row" style="grid-column:1/-1">
+          <button class="btn primary" type="submit" id="expSubmit">Add expense</button>
+          <button class="btn hidden" type="button" id="expCancel">Cancel edit</button>
+          <span class="muted" id="expHint"></span>
+        </div>
+      </form>
+      <datalist id="supplierList"></datalist><datalist id="jobList"></datalist>
+    </div>
+    <div class="panel">
+      <div class="filters">
+        <input id="expSearch" placeholder="Search supplier, description, notes…">
+        <select id="expCatFilter"></select>
+        <select id="expQFilter"></select>
+      </div>
+      <div class="scroll"><table id="expTable"></table></div>
+    </div>
+  </section>
+
+  <!-- MILEAGE -->
+  <section id="tab-mil" class="hidden">
+    <div class="panel">
+      <h2 id="milFormTitle">Add a journey</h2>
+      <form class="grid" id="milForm" autocomplete="off">
+        <input type="hidden" name="id">
+        <label>Date<input type="date" name="date" required></label>
+        <label>From<input name="from" list="placeList"></label>
+        <label>To<input name="to" list="placeList"></label>
+        <label>Return to<input name="ret" list="placeList"></label>
+        <label>Job / client<input name="job" list="jobList"></label>
+        <label>Location / purpose<input name="location" list="locList"></label>
+        <label>Miles travelled<input type="number" name="miles" min="0" step="0.1" required></label>
+        <label>Business journey?<select name="business"><option value="yes">Yes – business</option><option value="no">No – private</option></select></label>
+        <div class="row" style="grid-column:1/-1">
+          <button class="btn primary" type="submit" id="milSubmit">Add journey</button>
+          <button class="btn" type="button" id="milRepeat">Copy last journey</button>
+          <button class="btn hidden" type="button" id="milCancel">Cancel edit</button>
+          <span class="muted" id="milHint"></span>
+        </div>
+      </form>
+      <datalist id="placeList"></datalist><datalist id="locList"></datalist>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-bottom:10px"><span id="odoSummary" class="muted"></span></div>
+      <div class="scroll"><table id="milTable"></table></div>
+    </div>
+  </section>
+
+  <!-- REPORT -->
+  <section id="tab-rep" class="hidden">
+    <div class="panel">
+      <h2>Give HMRC (or your accountant) a record</h2>
+      <div class="row" style="margin-bottom:14px">
+        <button class="btn primary" id="printBtn">Print / save as PDF</button>
+        <button class="btn" id="xlsxBtn">Download Excel workbook</button>
+        <button class="btn" id="csvBtn">Download CSV files</button>
+        <button class="btn" id="zipRcptBtn">Download receipt images</button>
+      </div>
+      <ol class="steps">
+        <li><b>Every quarter</b> – copy the category totals below into your HMRC‑recognised Making Tax Digital software (or send the Excel file to your accountant). Updates are due 7 Aug, 7 Nov, 7 Feb and 7 May.</li>
+        <li><b>After 5 April</b> – print the full record to PDF. It has the summary, every expense, the full mileage log with odometer readings, the rates used, and the change log. Keep it with your receipts.</li>
+        <li><b>Keep it for at least 5 years after 31 January</b> following the tax year (for 2026/27, until 31 Jan 2033). HMRC only asks for it if they check your return.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h2>Summary for your tax return / quarterly update</h2>
+      <div class="scroll"><table id="repCat"></table></div>
+      <p class="muted" style="font-size:13px;margin-bottom:0" id="repRates"></p>
+    </div>
+    <div class="panel">
+      <h2>Quarters by HMRC category</h2>
+      <div class="scroll"><table id="repQ"></table></div>
+    </div>
+  </section>
+
+  <!-- SYNC -->
+  <section id="tab-sync" class="hidden">
+    <div class="panel">
+      <h2>Use it on your Mac and your PC</h2>
+      <div id="fsSupported">
+        <p style="margin-top:0">Pick a folder that OneDrive (or iCloud/Dropbox) keeps in step between your computers – for example <b>OneDrive › HTS Expenses</b>. The app saves your records and receipt photos into that folder after every change, and reads the other computer's changes whenever you open it or switch back to it.</p>
+        <div class="row">
+          <button class="btn primary" id="connectBtn">Choose data folder…</button>
+          <button class="btn hidden" id="reconnectBtn">Reconnect to folder</button>
+          <button class="btn hidden" id="syncNowBtn">Sync now</button>
+          <button class="btn hidden danger" id="disconnectBtn">Disconnect</button>
+        </div>
+        <p class="muted" id="syncDetail" style="font-size:13px;margin-bottom:0"></p>
+      </div>
+      <div id="fsUnsupported" class="note warn hidden" style="margin:0">This browser can't link to a folder. Open the app in <b>Google Chrome</b> or <b>Microsoft Edge</b> (on Mac or PC) for automatic sync, or use a transfer file below.</div>
+    </div>
+    <div class="panel">
+      <h2>Transfer file (manual)</h2>
+      <p style="margin-top:0">Works in any browser. Save a file here, open the app on the other computer and load it – entries from both computers are combined, nothing is lost.</p>
+      <div class="row">
+        <button class="btn primary" id="backupBtn">Save transfer / backup file</button>
+        <label class="btn" style="flex-direction:row">Load transfer / backup file…<input type="file" id="restoreFile" accept=".json,application/json" class="hidden"></label>
+        <span class="muted" id="lastBackup"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- RULES -->
+  <section id="tab-rules" class="hidden">
+    <div class="panel">
+      <h2>Mileage rates</h2>
+      <p style="margin-top:0">Each journey uses the rate in force on its date, so a new rate only changes journeys from its start date onwards. Business miles count towards the threshold per tax year (6 April – 5 April). Changing a rate recalculates every journey it covers straight away.</p>
+      <div class="scroll"><table id="rateTable"></table></div>
+      <form class="grid" id="rateForm" style="margin-top:12px">
+        <label>Applies from<input type="date" name="from" required></label>
+        <label>Rate up to threshold (£)<input type="number" name="r1" step="0.01" min="0" required></label>
+        <label>Rate after threshold (£)<input type="number" name="r2" step="0.01" min="0" required></label>
+        <label>Threshold (business miles per year)<input type="number" name="threshold" step="1" min="0" value="10000" required></label>
+        <div><button class="btn primary" type="submit">Add rate</button></div>
+      </form>
+      <p class="muted" id="rateHint" style="font-size:13px;margin-bottom:0"></p>
+    </div>
+    <div class="panel">
+      <h2>Expense categories</h2>
+      <p style="margin-top:0">The HMRC heading decides where each category is totalled on your return. Renaming a category updates every expense already in it. Changing the heading moves past totals too – check with your accountant before changing a past year.</p>
+      <div class="scroll"><table id="catTable"></table></div>
+      <form class="row" id="catForm" style="margin-top:12px">
+        <input name="name" placeholder="New category name" required style="max-width:260px">
+        <select name="heading" style="max-width:300px"></select>
+        <button class="btn" type="submit">Add category</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>Rate updates from the app</h2>
+      <p style="margin-top:0" class="muted" id="rulesSource">The app checks for published HMRC rate changes each time it opens online.</p>
+      <button class="btn" id="checkRulesBtn">Check now</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="tab-set" class="hidden">
+    <div class="panel">
+      <h2>Business details (shown on the HMRC record)</h2>
+      <form class="grid" id="setForm">
+        <label>Business name<input name="company"></label>
+        <label>Proprietor name<input name="owner"></label>
+        <label>UTR (optional)<input name="utr"></label>
+        <label>Vehicle registration<input name="vehicleReg"></label>
+        <label>Vehicle make / model<input name="vehicle"></label>
+        <label>Opening odometer reading<input type="number" name="openingOdo" min="0"></label>
+        <label>Odometer reading date<input type="date" name="openingDate"></label>
+        <div class="row" style="grid-column:1/-1"><button class="btn primary" type="submit">Save details</button><span class="muted" id="setHint"></span></div>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>Change log</h2>
+      <p class="muted" style="font-size:13px;margin-top:0">Every add, edit and delete is time‑stamped with the computer it was made on, and included in the HMRC record.</p>
+      <div class="scroll" style="max-height:360px"><table id="logTable"></table></div>
+    </div>
+  </section>
+</div>
+
+<div id="printArea"></div>
+<dialog id="rcptDlg"><div id="rcptBody"></div><div class="row" style="margin-top:10px"><span class="spacer"></span><button class="btn" onclick="this.closest('dialog').close()">Close</button></div></dialog>
+
+<script>
+/* =========================================================
+   HTS Expense Ledger
+   Data lives in this browser (localStorage + IndexedDB) and,
+   when a folder is connected, in <folder>/data.json and
+   <folder>/receipts/. Records are merged by id, newest wins.
+   ========================================================= */
+const STORE_KEY='hts-ledger-v2', OLD_KEY='hts-ledger-v1', DATA_FILE='data.json';
+const HMRC={
+  goods:'Cost of goods / materials', travel:'Car, van & travel expenses', admin:'Phone, stationery & office costs',
+  advert:'Advertising & marketing', prof:'Accountancy, legal & professional fees', finance:'Bank & finance charges',
+  other:'Other allowable business expenses',
+};
+const HMRC_ORDER=['goods','travel','admin','advert','prof','finance','other'];
+const DEFAULT_CATEGORIES=[
+  ['Hotel / accommodation','travel'],['Parking','travel'],['Tolls / congestion','travel'],['Train / flights / taxi','travel'],
+  ['Meals / subsistence','travel'],['Tools / equipment','other'],['PPE / workwear','other'],['Materials / consumables','goods'],
+  ['Software / subscriptions','admin'],['Phone / internet','admin'],['Stationery / postage','admin'],['Professional fees','prof'],
+  ['Insurance','other'],['Training','other'],['Bank charges','finance'],['Advertising / marketing','advert'],['Other','other'],
+].map(([name,heading])=>({name,heading}));
+const DEFAULT_RATES=[
+  {from:'2011-04-06',r1:0.45,r2:0.25,threshold:10000},
+  {from:'2026-04-06',r1:0.55,r2:0.25,threshold:10000},
+];
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/* ---------- Helpers ---------- */
+const $=s=>document.querySelector(s);
+const gbp=n=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format(n||0);
+const num=n=>new Intl.NumberFormat('en-GB',{maximumFractionDigits:1}).format(n||0);
+const pence=r=>`${+(r*100).toFixed(1)}p`;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const fmtDate=iso=>{ if(!iso) return ''; const [y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; };
+const fmtTs=ts=>new Date(ts).toLocaleString('en-GB');
+const round2=n=>Math.round((n+Number.EPSILON)*100)/100;
+const taxYearOf=iso=>{ const y=+iso.slice(0,4); return iso>=`${y}-04-06`?y:y-1; };
+const tyLabel=y=>`${y}/${String(y+1).slice(2)}`;
+const tyStart=y=>`${y}-04-06`, tyEnd=y=>`${y+1}-04-05`;
+const quarters=y=>[
+  {q:1,from:`${y}-04-06`,to:`${y}-07-05`,due:`${y}-08-07`},
+  {q:2,from:`${y}-07-06`,to:`${y}-10-05`,due:`${y}-11-07`},
+  {q:3,from:`${y}-10-06`,to:`${y+1}-01-05`,due:`${y+1}-02-07`},
+  {q:4,from:`${y+1}-01-06`,to:`${y+1}-04-05`,due:`${y+1}-05-07`},
+];
+const quarterOf=(iso,y)=>quarters(y).find(q=>iso>=q.from&&iso<=q.to)?.q;
+const todayISO=()=>{ const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const stamp=r=>r.updated||r.created||0;
+function download(name,content,type){
+  const blob=content instanceof Blob?content:new Blob([content],{type});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
+}
+// Which computer made a change (shown in the change log)
+const DEVICE=(()=>{ let d; try{ d=localStorage.getItem('hts-device'); }catch(e){}
+  if(!d){ const p=navigator.userAgent; d=(/Windows/.test(p)?'PC':/Mac/.test(p)?'Mac':/iPhone|iPad/.test(p)?'iOS':/Android/.test(p)?'Android':'Device')+'-'+Math.random().toString(36).slice(2,6);
+    try{ localStorage.setItem('hts-device',d); }catch(e){} }
+  return d; })();
+
+/* ---------- Data model ---------- */
+function blankData(){
+  return {schema:2,
+    settings:{company:'Hanslip Technical Services',owner:'',utr:'',vehicleReg:'',vehicle:'',openingOdo:0,openingDate:'',updated:0},
+    rules:{mileageRates:DEFAULT_RATES.map(r=>({...r})),categories:DEFAULT_CATEGORIES.map(c=>({...c})),updated:0,seenVersion:0},
+    expenses:[],journeys:[],deleted:{},submitted:{},log:[],lastBackup:null,savedAt:0};
+}
+// Bring older saves (v1) up to the current shape
+function migrate(d){
+  if(!d) return blankData();
+  const b=blankData();
+  if(!d.schema){
+    const rates=Object.entries(d.settings?.rates||{}).map(([y,r])=>({from:`${y}-04-06`,r1:r.r1,r2:r.r2,threshold:10000}));
+    d.rules={...b.rules,mileageRates:mergeRates(b.rules.mileageRates,rates)};
+    if(d.settings) delete d.settings.rates;
+    d.deleted={};
+    const subs={}; Object.entries(d.submitted||{}).forEach(([k,v])=>subs[k]={on:true,date:v,ts:Date.now()}); d.submitted=subs;
+    d.schema=2;
+  }
+  d.settings={...b.settings,...d.settings};
+  d.rules={...b.rules,...d.rules};
+  ['expenses','journeys','log'].forEach(k=>d[k]=d[k]||[]);
+  d.deleted=d.deleted||{}; d.submitted=d.submitted||{};
+  d.expenses.forEach(e=>e.updated=e.updated||e.modified||e.created||Date.now());
+  d.journeys.forEach(j=>j.updated=j.updated||j.modified||j.created||Date.now());
+  return d;
+}
+function mergeRates(a,b){ const m={}; [...a,...b].forEach(r=>m[r.from]=r); return Object.values(m).sort((x,y)=>x.from.localeCompare(y.from)); }
+// Combine two copies of the data (this computer + the other one). Newest edit of each record wins; deletes are remembered.
+function mergeData(a,b){
+  a=migrate(a); b=migrate(b);
+  const out=blankData();
+  out.deleted={...a.deleted}; Object.entries(b.deleted).forEach(([k,v])=>out.deleted[k]=Math.max(v,out.deleted[k]||0));
+  for(const k of ['expenses','journeys']){
+    const m=new Map();
+    [...a[k],...b[k]].forEach(r=>{ const cur=m.get(r.id); if(!cur||stamp(r)>stamp(cur)) m.set(r.id,{...cur,...r,hasReceipt:r.hasReceipt||cur?.hasReceipt}); });
+    out[k]=[...m.values()].filter(r=>!(out.deleted[r.id]>=stamp(r)));
+  }
+  out.settings=(b.settings.updated||0)>(a.settings.updated||0)?b.settings:a.settings;
+  out.rules=(b.rules.updated||0)>(a.rules.updated||0)?{...b.rules}:{...a.rules};
+  out.rules.seenVersion=Math.max(a.rules.seenVersion||0,b.rules.seenVersion||0);
+  out.submitted={...a.submitted}; Object.entries(b.submitted).forEach(([k,v])=>{ if(!out.submitted[k]||v.ts>out.submitted[k].ts) out.submitted[k]=v; });
+  const seen=new Set(); out.log=[...a.log,...b.log].filter(l=>{const key=l.ts+'|'+l.summary; if(seen.has(key)) return false; seen.add(key); return true;}).sort((x,y)=>x.ts-y.ts);
+  out.lastBackup=Math.max(a.lastBackup||0,b.lastBackup||0)||null;
+  out.savedAt=Math.max(a.savedAt||0,b.savedAt||0);
+  return out;
+}
+function load(){
+  let d=null;
+  try{ d=JSON.parse(localStorage.getItem(STORE_KEY)); }catch(e){}
+  if(!d){ try{ d=JSON.parse(localStorage.getItem(OLD_KEY)); }catch(e){} }
+  return migrate(d);
+}
+function save(){
+  DATA.savedAt=Date.now();
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(DATA)); }
+  catch(e){ alert('Could not save in this browser – storage may be full or blocked. Connect a data folder or save a transfer file now.'); }
+  scheduleSync();
+}
+function logChange(action,what,summary){ DATA.log.push({ts:Date.now(),action,what,summary,device:DEVICE}); }
+
+/* ---------- IndexedDB: receipt images + the linked folder ---------- */
+const idb=(()=>{
+  let p=null;
+  const open=()=>p||(p=new Promise((res,rej)=>{
+    const r=indexedDB.open('hts-receipts',2);
+    r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains('r')) db.createObjectStore('r'); if(!db.objectStoreNames.contains('h')) db.createObjectStore('h'); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  }));
+  const tx=async(store,mode,fn)=>{ const db=await open(); return new Promise((res,rej)=>{ const t=db.transaction(store,mode); const req=fn(t.objectStore(store)); t.oncomplete=()=>res(req&&req.result); t.onerror=()=>rej(t.error); }); };
+  return {
+    get:k=>tx('r','readonly',s=>s.get(k)), put:(k,v)=>tx('r','readwrite',s=>s.put(v,k)), del:k=>tx('r','readwrite',s=>s.delete(k)),
+    keys:()=>tx('r','readonly',s=>s.getAllKeys()),
+    hget:k=>tx('h','readonly',s=>s.get(k)), hput:(k,v)=>tx('h','readwrite',s=>s.put(v,k)), hdel:k=>tx('h','readwrite',s=>s.delete(k)),
+  };
+})();
+function fileToDataUrl(file){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader(); fr.onerror=rej;
+    fr.onload=()=>{
+      if(!file.type.startsWith('image/')) return res(fr.result);
+      const img=new Image();
+      img.onload=()=>{ const max=1600,s=Math.min(1,max/Math.max(img.width,img.height));
+        const c=document.createElement('canvas'); c.width=Math.round(img.width*s); c.height=Math.round(img.height*s);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height); res(c.toDataURL('image/jpeg',0.8)); };
+      img.onerror=()=>res(fr.result); img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+const dataUrlToBlob=async u=>(await fetch(u)).blob();
+const blobToDataUrl=b=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
+const rcptName=(id,data)=>`${id}.${String(data).startsWith('data:application/pdf')?'pdf':'jpg'}`;
+
+/* ---------- Folder sync (Chrome / Edge) ---------- */
+const FS_OK='showDirectoryPicker' in window;
+const SYNC={dir:null,state:'off',last:null,error:'',busy:false,timer:null,pending:false};
+function setSync(state,error=''){ SYNC.state=state; SYNC.error=error; renderSync(); }
+async function connectFolder(){
+  try{
+    const dir=await window.showDirectoryPicker({id:'hts-ledger',mode:'readwrite'});
+    SYNC.dir=dir; await idb.hput('dir',dir);
+    logChange('connect','sync folder',`Linked data folder "${dir.name}"`);
+    await syncNow();
+  }catch(e){ if(e.name!=='AbortError') setSync('error',e.message); }
+}
+async function restoreFolder(){
+  if(!FS_OK) return;
+  const dir=await idb.hget('dir').catch(()=>null); if(!dir) return setSync('off');
+  SYNC.dir=dir;
+  const perm=await dir.queryPermission({mode:'readwrite'});
+  if(perm==='granted') await syncNow(); else setSync('needs-permission');
+}
+async function reconnect(){
+  if(!SYNC.dir) return connectFolder();
+  const perm=await SYNC.dir.requestPermission({mode:'readwrite'});
+  if(perm==='granted') await syncNow(); else setSync('needs-permission');
+}
+async function disconnect(){
+  if(!confirm('Stop syncing with this folder? Your data stays in this browser and in the folder.')) return;
+  await idb.hdel('dir'); SYNC.dir=null; setSync('off');
+}
+function scheduleSync(){ if(SYNC.state!=='ok'&&SYNC.state!=='syncing') return; clearTimeout(SYNC.timer); SYNC.timer=setTimeout(syncNow,700); }
+async function syncNow(){
+  if(!SYNC.dir) return;
+  if(SYNC.busy){ SYNC.pending=true; return; }
+  SYNC.busy=true; setSync('syncing');
+  try{
+    if(await SYNC.dir.queryPermission({mode:'readwrite'})!=='granted'){ SYNC.busy=false; return setSync('needs-permission'); }
+    // 1. read the other computer's copy and combine
+    let remote=null;
+    try{ const fh=await SYNC.dir.getFileHandle(DATA_FILE); remote=JSON.parse(await (await fh.getFile()).text()); }
+    catch(e){ if(e.name!=='NotFoundError') throw e; }
+    if(remote){ if(remote.app!=='hts-ledger') throw new Error('data.json in that folder is not from this app'); }
+    const before=JSON.stringify([DATA.expenses.length,DATA.journeys.length,DATA.savedAt]);
+    if(remote) DATA=mergeData(DATA,remote.data);
+    DATA.savedAt=Math.max(DATA.savedAt||0,Date.now());
+    try{ localStorage.setItem(STORE_KEY,JSON.stringify(DATA)); }catch(e){}
+    // 2. write the combined copy back
+    const fh=await SYNC.dir.getFileHandle(DATA_FILE,{create:true});
+    const w=await fh.createWritable(); await w.write(JSON.stringify({app:'hts-ledger',version:2,savedBy:DEVICE,savedAt:Date.now(),data:DATA})); await w.close();
+    // 3. receipts: upload any this computer has that the folder lacks
+    const rdir=await SYNC.dir.getDirectoryHandle('receipts',{create:true});
+    const inFolder=new Set(); for await (const [name] of rdir.entries()) inFolder.add(name.split('.')[0]);
+    for(const k of await idb.keys()){
+      if(inFolder.has(k)) continue;
+      const r=await idb.get(k); if(!r) continue;
+      const f=await rdir.getFileHandle(rcptName(k,r.data),{create:true}); const ww=await f.createWritable(); await ww.write(await dataUrlToBlob(r.data)); await ww.close();
+    }
+    SYNC.last=Date.now(); SYNC.busy=false; setSync('ok');
+    if(JSON.stringify([DATA.expenses.length,DATA.journeys.length,DATA.savedAt])!==before) renderAll();
+  }catch(e){ SYNC.busy=false; setSync('error',e.message); }
+  if(SYNC.pending){ SYNC.pending=false; syncNow(); }
+}
+async function getReceipt(id){
+  let r=await idb.get(id).catch(()=>null); if(r) return r;
+  if(SYNC.dir&&SYNC.state==='ok'){
+    try{ const rdir=await SYNC.dir.getDirectoryHandle('receipts');
+      for await (const [name,h] of rdir.entries()){ if(name.split('.')[0]===id){ const f=await h.getFile(); r={name,data:await blobToDataUrl(f)}; await idb.put(id,r); return r; } }
+    }catch(e){}
+  }
+  return null;
+}
+// Pick up the other computer's changes when you come back to this window
+window.addEventListener('focus',()=>{ if(SYNC.state==='ok') syncNow(); });
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&SYNC.state==='ok') syncNow(); });
+
+/* ---------- Calculations ---------- */
+const S=()=>DATA.settings, R=()=>DATA.rules;
+const catHeading=name=>R().categories.find(c=>c.name===name)?.heading||'other';
+function rateOn(iso){ const rs=[...R().mileageRates].sort((a,b)=>a.from.localeCompare(b.from)); let cur=rs[0]; for(const r of rs) if(r.from<=iso) cur=r; return cur||DEFAULT_RATES[1]; }
+function ratesInYear(y){ const rs=[...R().mileageRates].sort((a,b)=>a.from.localeCompare(b.from)); return rs.filter((r,i)=>r.from<=tyEnd(y)&&(!rs[i+1]||rs[i+1].from>tyStart(y))); }
+const expClaim=e=>round2((+e.cost||0)*(+e.businessPct||0)/100);
+function journeyCalc(){
+  const js=[...DATA.journeys].sort((a,b)=>a.date.localeCompare(b.date)||(a.created-b.created));
+  let odo=+S().openingOdo||0; const done={};
+  return js.map(j=>{
+    const start=odo,end=odo+(+j.miles||0); odo=end;
+    let claim=0,r1m=0,r2m=0,rate=null;
+    if(j.business){
+      const y=taxYearOf(j.date),m=+j.miles||0,sofar=done[y]||0; rate=rateOn(j.date);
+      r1m=Math.max(0,Math.min(m,rate.threshold-sofar)); r2m=m-r1m; done[y]=sofar+m;
+      claim=round2(r1m*rate.r1+r2m*rate.r2);
+    }
+    return {...j,start,end,claim,r1m,r2m,rate};
+  });
+}
+function yearData(y){
+  const inY=x=>x.date>=tyStart(y)&&x.date<=tyEnd(y);
+  return {exps:DATA.expenses.filter(inY).sort((a,b)=>a.date.localeCompare(b.date)||(a.created-b.created)), jrn:journeyCalc().filter(inY)};
+}
+function totals(exps,jrn){
+  const t={cats:{},hmrc:{},expTotal:0,cost:0,mileClaim:0,bizMiles:0,privMiles:0};
+  HMRC_ORDER.forEach(k=>t.hmrc[k]=0);
+  exps.forEach(e=>{ const c=expClaim(e); t.cats[e.category]=(t.cats[e.category]||0)+c; t.hmrc[catHeading(e.category)]+=c; t.expTotal+=c; t.cost+=(+e.cost||0); });
+  jrn.forEach(j=>{ if(j.business){t.bizMiles+=+j.miles||0; t.mileClaim+=j.claim;} else t.privMiles+=+j.miles||0; });
+  t.mileClaim=round2(t.mileClaim); t.hmrc.travel=round2(t.hmrc.travel+t.mileClaim); t.grand=round2(t.expTotal+t.mileClaim);
+  return t;
+}
+const mileClaimByYear=()=>{ const o={}; journeyCalc().forEach(j=>{ if(j.business){ const y=taxYearOf(j.date); o[y]=round2((o[y]||0)+j.claim);} }); return o; };
+// After a rule change, record what it did to each year's mileage claim
+function logRecalc(before,why){
+  const after=mileClaimByYear(), msgs=[];
+  new Set([...Object.keys(before),...Object.keys(after)]).forEach(y=>{ if((before[y]||0)!==(after[y]||0)) msgs.push(`${tyLabel(+y)}: ${gbp(before[y])} → ${gbp(after[y])}`); });
+  logChange('recalculate','mileage',`${why}. ${msgs.length?'Mileage claim '+msgs.join('; '):'No existing journeys affected'}`);
+  return msgs;
+}
+
+/* ---------- State ---------- */
+let DATA=load();
+let YEAR=taxYearOf(todayISO());
+let RULES_FEED=null;
+
+/* ---------- Rendering ---------- */
+function renderYearSel(){
+  const ys=new Set([taxYearOf(todayISO())]);
+  DATA.expenses.forEach(e=>ys.add(taxYearOf(e.date))); DATA.journeys.forEach(j=>ys.add(taxYearOf(j.date)));
+  const sorted=[...ys].sort((a,b)=>b-a); if(!sorted.includes(YEAR)) YEAR=sorted[0];
+  $('#yearSel').innerHTML=sorted.map(y=>`<option value="${y}" ${y===YEAR?'selected':''}>${tyLabel(y)} (6 Apr ${y} – 5 Apr ${y+1})</option>`).join('');
+}
+function hmrcTableHTML(t){
+  return `<tr><th>HMRC heading</th><th>Includes</th><th class="num">Allowable</th></tr>`+
+    HMRC_ORDER.map(k=>{
+      const parts=Object.keys(t.cats).filter(c=>catHeading(c)===k&&t.cats[c]).map(c=>`${esc(c)} ${gbp(t.cats[c])}`);
+      if(k==='travel'&&t.mileClaim) parts.unshift(`Mileage ${num(t.bizMiles)} mi ${gbp(t.mileClaim)}`);
+      return `<tr><td>${HMRC[k]}</td><td class="muted" style="font-size:13px">${parts.join(' · ')||'–'}</td><td class="num">${gbp(t.hmrc[k])}</td></tr>`;
+    }).join('')+`<tr class="total"><td colspan="2">Total allowable expenses</td><td class="num">${gbp(t.grand)}</td></tr>`;
+}
+const ratesText=y=>ratesInYear(y).map(r=>`${r.from>tyStart(y)?`from ${fmtDate(r.from)}: `:''}${pence(r.r1)} a mile for the first ${num(r.threshold)} business miles in the tax year, then ${pence(r.r2)}`).join('; ');
+function renderDash(){
+  const {exps,jrn}=yearData(YEAR),t=totals(exps,jrn),r=rateOn(YEAR===taxYearOf(todayISO())?todayISO():tyEnd(YEAR));
+  $('#tiles').innerHTML=[
+    ['Total claimable',gbp(t.grand),`Tax year ${tyLabel(YEAR)}`],
+    ['Expenses',gbp(t.expTotal),`${exps.length} item${exps.length===1?'':'s'}`],
+    ['Mileage claim',gbp(t.mileClaim),`${num(t.bizMiles)} business miles`],
+    ['Private miles',num(t.privMiles),'Not claimable'],
+    [`Miles left at ${pence(r.r1)}`,num(Math.max(0,r.threshold-t.bizMiles)),`then ${pence(r.r2)} a mile`],
+  ].map(([k,v,n])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join('');
+  const today=todayISO();
+  $('#qTable').innerHTML=`<tr><th>Quarter</th><th>Period</th><th>Update due</th><th class="num">Expenses</th><th class="num">Mileage</th><th class="num">Total</th><th>Status</th></tr>`+
+    quarters(YEAR).map(q=>{
+      const qt=totals(exps.filter(e=>e.date>=q.from&&e.date<=q.to),jrn.filter(j=>j.date>=q.from&&j.date<=q.to));
+      const key=`${YEAR}-Q${q.q}`,sub=DATA.submitted[key];
+      const st=sub?.on?`<span class="chip yes">Submitted ${fmtDate(sub.date)}</span> <button class="btn small" data-unsub="${key}">Undo</button>`
+        :today>q.to?`<span class="chip">${today>q.due?'Due date passed':'Ready to submit'}</span> <button class="btn small" data-sub="${key}">Mark submitted</button>`
+        :(today>=q.from?'<span class="chip">In progress</span>':'<span class="chip">Not started</span>');
+      return `<tr><td>Q${q.q}</td><td>${fmtDate(q.from)} – ${fmtDate(q.to)}</td><td>${fmtDate(q.due)}</td><td class="num">${gbp(qt.expTotal)}</td><td class="num">${gbp(qt.mileClaim)}</td><td class="num">${gbp(qt.grand)}</td><td>${st}</td></tr>`;
+    }).join('')+`<tr class="total"><td colspan="3">Year total</td><td class="num">${gbp(t.expTotal)}</td><td class="num">${gbp(t.mileClaim)}</td><td class="num">${gbp(t.grand)}</td><td></td></tr>`;
+  const rows=[]; for(let i=0;i<13;i++){ const m=(3+i)%12,yy=YEAR+(3+i>=12?1:0); rows.push({m,yy,key:`${yy}-${String(m+1).padStart(2,'0')}`}); }
+  $('#mTable').innerHTML=`<tr><th>Month</th><th class="num">Expenses</th><th class="num">Business miles</th><th class="num">Mileage claim</th><th class="num">Total</th></tr>`+
+    rows.map((r,i)=>{
+      const me=exps.filter(e=>e.date.startsWith(r.key)),mj=jrn.filter(j=>j.date.startsWith(r.key)),mt=totals(me,mj);
+      if(i===12&&!me.length&&!mj.length) return '';
+      return `<tr><td>${MONTHS[r.m]} ${r.yy}${i===0?' (from 6th)':i===12?' (to 5th)':''}</td><td class="num">${gbp(mt.expTotal)}</td><td class="num">${num(mt.bizMiles)}</td><td class="num">${gbp(mt.mileClaim)}</td><td class="num">${gbp(mt.grand)}</td></tr>`;
+    }).join('')+`<tr class="total"><td>Total</td><td class="num">${gbp(t.expTotal)}</td><td class="num">${num(t.bizMiles)}</td><td class="num">${gbp(t.mileClaim)}</td><td class="num">${gbp(t.grand)}</td></tr>`;
+  $('#cTable').innerHTML=hmrcTableHTML(t);
+}
+function renderExpenses(){
+  const {exps}=yearData(YEAR);
+  const q=$('#expSearch').value.trim().toLowerCase(),cf=$('#expCatFilter').value,qf=$('#expQFilter').value;
+  const list=exps.filter(e=>(!cf||e.category===cf)&&(!qf||String(quarterOf(e.date,YEAR))===qf)&&(!q||[e.supplier,e.description,e.notes,e.receiptRef,e.job].join(' ').toLowerCase().includes(q))).reverse();
+  let tot=0,cost=0; list.forEach(e=>{tot+=expClaim(e);cost+=+e.cost||0;});
+  $('#expTable').innerHTML=`<tr><th>Date</th><th>Supplier</th><th>Description</th><th>Category</th><th>Paid with</th><th>Ref</th><th class="num">Cost</th><th class="num">Bus. %</th><th class="num">Claim</th><th>Receipt</th><th></th></tr>`+
+    (list.length?list.map(e=>`<tr>
+      <td style="white-space:nowrap">${fmtDate(e.date)}</td><td>${esc(e.supplier)}</td>
+      <td>${esc(e.description)}${e.job?`<div class="muted" style="font-size:12px">${esc(e.job)}</div>`:''}${e.notes?`<div class="muted" style="font-size:12px">${esc(e.notes)}</div>`:''}</td>
+      <td><span class="chip">${esc(e.category)}</span></td><td>${esc(e.paidWith)}</td><td>${esc(e.receiptRef)}</td>
+      <td class="num">${gbp(e.cost)}</td><td class="num">${e.businessPct}%</td><td class="num">${gbp(expClaim(e))}</td>
+      <td>${e.hasReceipt?`<button class="btn small" data-rcpt="${e.id}">View</button>`:'<span class="muted">–</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn small" data-edit-exp="${e.id}">Edit</button> <button class="btn small danger" data-del-exp="${e.id}">Delete</button></td></tr>`).join('')
+      :`<tr><td colspan="11" class="muted">No expenses for ${tyLabel(YEAR)} yet. Add one above.</td></tr>`)+
+    (list.length?`<tr class="total"><td colspan="6">${list.length} shown</td><td class="num">${gbp(cost)}</td><td></td><td class="num">${gbp(tot)}</td><td colspan="2"></td></tr>`:'');
+}
+function renderMileage(){
+  const {jrn}=yearData(YEAR),all=journeyCalc(),last=all[all.length-1],t=totals([],jrn);
+  $('#odoSummary').textContent=`Opening odometer ${num(S().openingOdo)}${S().openingDate?` (${fmtDate(S().openingDate)})`:''} · Latest odometer ${num(last?last.end:S().openingOdo)} · Rates ${tyLabel(YEAR)}: ${ratesText(YEAR)}`;
+  $('#milTable').innerHTML=`<tr><th>Date</th><th>From</th><th>To</th><th>Return</th><th>Job</th><th>Location</th><th class="num">Miles</th><th class="num">Start odo</th><th class="num">End odo</th><th>Business</th><th class="num">Rate</th><th class="num">Claim</th><th></th></tr>`+
+    (jrn.length?[...jrn].reverse().map(j=>`<tr class="${j.business?'':'private'}">
+      <td style="white-space:nowrap">${fmtDate(j.date)}</td><td>${esc(j.from)}</td><td>${esc(j.to)}</td><td>${esc(j.ret)}</td><td>${esc(j.job)}</td><td>${esc(j.location)}</td>
+      <td class="num">${num(j.miles)}</td><td class="num">${num(j.start)}</td><td class="num">${num(j.end)}</td>
+      <td>${j.business?'<span class="chip yes">Yes</span>':'<span class="chip">No</span>'}</td>
+      <td class="num">${j.business&&j.miles?(j.r2m&&j.r1m?`${pence(j.rate.r1)}/${pence(j.rate.r2)}`:pence(j.r2m?j.rate.r2:j.rate.r1)):'–'}</td>
+      <td class="num">${j.business?gbp(j.claim):'–'}</td>
+      <td style="white-space:nowrap"><button class="btn small" data-edit-mil="${j.id}">Edit</button> <button class="btn small danger" data-del-mil="${j.id}">Delete</button></td></tr>`).join('')
+      :`<tr><td colspan="13" class="muted">No journeys for ${tyLabel(YEAR)} yet.</td></tr>`)+
+    `<tr class="total"><td colspan="6">${jrn.length} journeys · ${num(t.bizMiles)} business · ${num(t.privMiles)} private</td><td class="num">${num(t.bizMiles+t.privMiles)}</td><td colspan="4"></td><td class="num">${gbp(t.mileClaim)}</td><td></td></tr>`;
+}
+function renderReport(){
+  const {exps,jrn}=yearData(YEAR),t=totals(exps,jrn);
+  $('#repCat').innerHTML=hmrcTableHTML(t);
+  $('#repRates').textContent=`Mileage at HMRC approved rates – ${ratesText(YEAR)}. These rates cover fuel, insurance, servicing and wear, so don't also claim running costs for the same vehicle.`;
+  const qs=quarters(YEAR).map(q=>totals(exps.filter(e=>e.date>=q.from&&e.date<=q.to),jrn.filter(j=>j.date>=q.from&&j.date<=q.to)));
+  $('#repQ').innerHTML=`<tr><th>HMRC heading</th>${quarters(YEAR).map(q=>`<th class="num">Q${q.q}<div style="font-weight:400">${fmtDate(q.from).slice(0,5)}–${fmtDate(q.to).slice(0,5)}</div></th>`).join('')}<th class="num">Year</th></tr>`+
+    HMRC_ORDER.map(k=>`<tr><td>${HMRC[k]}</td>${qs.map(x=>`<td class="num">${gbp(x.hmrc[k])}</td>`).join('')}<td class="num">${gbp(t.hmrc[k])}</td></tr>`).join('')+
+    `<tr class="total"><td>Total</td>${qs.map(x=>`<td class="num">${gbp(x.grand)}</td>`).join('')}<td class="num">${gbp(t.grand)}</td></tr>`;
+}
+function renderRules(){
+  const rs=[...R().mileageRates].sort((a,b)=>b.from.localeCompare(a.from)), today=todayISO(), cur=rateOn(today);
+  $('#rateTable').innerHTML=`<tr><th>Applies from</th><th class="num">Up to threshold</th><th class="num">After threshold</th><th class="num">Threshold (miles)</th><th></th><th></th></tr>`+
+    rs.map(r=>`<tr data-from="${r.from}">
+      <td>${fmtDate(r.from)}</td>
+      <td class="num"><input type="number" step="0.01" min="0" value="${r.r1}" data-f="r1" style="width:90px;text-align:right"></td>
+      <td class="num"><input type="number" step="0.01" min="0" value="${r.r2}" data-f="r2" style="width:90px;text-align:right"></td>
+      <td class="num"><input type="number" step="1" min="0" value="${r.threshold}" data-f="threshold" style="width:100px;text-align:right"></td>
+      <td>${r===cur?'<span class="chip yes">In force today</span>':r.from>today?'<span class="chip">Future</span>':''}</td>
+      <td><button class="btn small danger" data-del-rate="${r.from}" ${rs.length<2?'disabled':''}>Remove</button></td></tr>`).join('');
+  const hs=HMRC_ORDER.map(k=>`<option value="${k}">${HMRC[k]}</option>`).join('');
+  $('#catForm').heading.innerHTML=hs;
+  const used={}; DATA.expenses.forEach(e=>used[e.category]=(used[e.category]||0)+1);
+  $('#catTable').innerHTML=`<tr><th>Category</th><th>HMRC heading</th><th class="num">Expenses</th><th></th></tr>`+
+    R().categories.map((c,i)=>`<tr><td><input value="${esc(c.name)}" data-cat-name="${i}"></td>
+      <td><select data-cat-head="${i}">${HMRC_ORDER.map(k=>`<option value="${k}" ${k===c.heading?'selected':''}>${HMRC[k]}</option>`).join('')}</select></td>
+      <td class="num">${used[c.name]||0}</td>
+      <td><button class="btn small danger" data-del-cat="${i}" ${used[c.name]?'disabled title="In use – rename or move its expenses first"':''}>Remove</button></td></tr>`).join('');
+  $('#rulesSource').textContent=RULES_FEED?`Latest published rates file: version ${RULES_FEED.version}, ${fmtDate(RULES_FEED.published)}.`:'The app checks for published HMRC rate changes each time it opens online.';
+}
+function renderSettings(){
+  const f=$('#setForm'),s=S();
+  ['company','owner','utr','vehicleReg','vehicle','openingOdo','openingDate'].forEach(k=>f[k].value=s[k]??'');
+  $('#logTable').innerHTML=`<tr><th>When</th><th>Computer</th><th>Action</th><th>Detail</th></tr>`+[...DATA.log].reverse().map(l=>`<tr><td style="white-space:nowrap">${fmtTs(l.ts)}</td><td>${esc(l.device||'')}</td><td>${esc(l.action)} ${esc(l.what)}</td><td>${esc(l.summary)}</td></tr>`).join('');
+}
+function renderLists(){
+  const uniq=a=>[...new Set(a.filter(Boolean))].sort();
+  $('#supplierList').innerHTML=uniq(DATA.expenses.map(e=>e.supplier)).map(v=>`<option value="${esc(v)}">`).join('');
+  $('#jobList').innerHTML=uniq([...DATA.expenses.map(e=>e.job),...DATA.journeys.map(j=>j.job)]).map(v=>`<option value="${esc(v)}">`).join('');
+  $('#placeList').innerHTML=uniq(DATA.journeys.flatMap(j=>[j.from,j.to,j.ret])).map(v=>`<option value="${esc(v)}">`).join('');
+  $('#locList').innerHTML=uniq(DATA.journeys.map(j=>j.location)).map(v=>`<option value="${esc(v)}">`).join('');
+  const sel=$('#catSel').value;
+  $('#catSel').innerHTML=R().categories.map(c=>`<option ${c.name===sel?'selected':''}>${esc(c.name)}</option>`).join('');
+  const cf=$('#expCatFilter').value,qf=$('#expQFilter').value;
+  $('#expCatFilter').innerHTML=`<option value="">All categories</option>`+R().categories.map(c=>`<option ${c.name===cf?'selected':''}>${esc(c.name)}</option>`).join('');
+  $('#expQFilter').innerHTML=`<option value="">Whole year</option>`+quarters(YEAR).map(q=>`<option value="${q.q}" ${String(q.q)===qf?'selected':''}>Q${q.q} (${fmtDate(q.from)} – ${fmtDate(q.to)})</option>`).join('');
+}
+function renderSync(){
+  const st=$('#syncStatus'),dir=SYNC.dir?.name;
+  const map={off:['','Not synced'],syncing:['ok',`Syncing…`],ok:['ok',`Synced · ${dir}`],'needs-permission':['warn','Click to reconnect'],error:['warn','Sync problem']};
+  const [cls,txt]=map[SYNC.state]; st.innerHTML=`<span class="dot ${cls}"></span><span>${esc(txt)}</span>`; st.style.cursor=SYNC.state==='needs-permission'?'pointer':'default';
+  $('#fsSupported').classList.toggle('hidden',!FS_OK); $('#fsUnsupported').classList.toggle('hidden',FS_OK);
+  $('#connectBtn').textContent=SYNC.dir?'Choose a different folder…':'Choose data folder…';
+  $('#reconnectBtn').classList.toggle('hidden',SYNC.state!=='needs-permission');
+  $('#syncNowBtn').classList.toggle('hidden',SYNC.state!=='ok');
+  $('#disconnectBtn').classList.toggle('hidden',!SYNC.dir);
+  $('#syncDetail').textContent=SYNC.state==='ok'?`Linked to folder "${dir}". Last synced ${SYNC.last?new Date(SYNC.last).toLocaleTimeString('en-GB'):''}.`
+    :SYNC.state==='needs-permission'?`Linked to "${dir}" – the browser needs you to allow access again each time it restarts.`
+    :SYNC.state==='error'?`Last sync failed: ${SYNC.error}`:'Not linked to a folder yet.';
+  $('#lastBackup').textContent=DATA.lastBackup?`Last transfer file saved ${fmtTs(DATA.lastBackup)}`:'';
+  renderNotices();
+}
+function renderNotices(){
+  const n=[];
+  if(SYNC.state==='needs-permission') n.push(`<div class="note warn">Your data folder <b>${esc(SYNC.dir?.name)}</b> needs reconnecting so this computer can pick up changes from the other one. <button class="btn small" onclick="reconnect()">Reconnect</button></div>`);
+  else if(SYNC.state==='error') n.push(`<div class="note warn">Couldn't sync with your data folder: ${esc(SYNC.error)} <button class="btn small" onclick="syncNow()">Try again</button></div>`);
+  else if(SYNC.state==='off'){
+    const empty=!DATA.expenses.length&&!DATA.journeys.length;
+    if(empty) n.push(`<div class="note"><b>Getting started:</b> ${FS_OK?'if you already use the app on another computer, choose the same OneDrive data folder to pick up all your records.':'load a transfer file from your other computer, or start adding entries.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':"document.querySelector('[data-tab=sync]').click()"}">${FS_OK?'Choose data folder':'Sync & backup'}</button></div>`);
+    else { const c=DATA.log.filter(l=>!DATA.lastBackup||l.ts>DATA.lastBackup).length;
+      if(!DATA.lastBackup||c>=5) n.push(`<div class="note warn">Your records are only in this browser. ${FS_OK?'Link a OneDrive folder to keep them safe and share them with your other computer.':'Save a transfer file to keep them safe.'} <button class="btn small" onclick="${FS_OK?'connectFolder()':'backup()'}">${FS_OK?'Choose data folder':'Save file'}</button></div>`); }
+  }
+  const upd=pendingRuleUpdates();
+  if(upd.length) n.push(`<div class="note warn"><b>Updated HMRC mileage rates are available.</b> ${upd.map(r=>`From ${fmtDate(r.from)}: ${pence(r.r1)} up to ${num(r.threshold)} miles, then ${pence(r.r2)}`).join('; ')}.${RULES_FEED.notes?.length?`<div class="muted" style="margin-top:4px">${RULES_FEED.notes.map(esc).join(' ')}</div>`:''} <div class="row" style="margin-top:8px"><button class="btn small primary" onclick="applyRuleUpdates()">Apply to my records</button><button class="btn small" onclick="dismissRuleUpdates()">Not now</button></div></div>`);
+  $('#notices').innerHTML=n.join('');
+}
+function renderAll(){
+  $('#coName').textContent=S().company||'My business';
+  renderYearSel(); renderLists(); renderDash(); renderExpenses(); renderMileage(); renderReport(); renderRules(); renderSettings(); renderSync();
+}
+
+/* ---------- Published rate updates (rules.json in the app's repo) ---------- */
+async function checkRules(manual){
+  try{
+    const r=await fetch('rules.json',{cache:'no-store'}); if(!r.ok) throw new Error(r.status);
+    RULES_FEED=await r.json(); renderAll();
+    if(manual) alert(pendingRuleUpdates().length?'New rates found – see the notice at the top.':'Your rates are up to date.');
+  }catch(e){ if(manual) alert('Could not check for updates (are you offline, or opening the file directly rather than from the website?).'); }
+}
+function pendingRuleUpdates(){
+  if(!RULES_FEED||RULES_FEED.version<=(R().seenVersion||0)) return [];
+  return (RULES_FEED.mileageRates||[]).filter(p=>{ const mine=R().mileageRates.find(r=>r.from===p.from); return !mine||mine.r1!==p.r1||mine.r2!==p.r2||mine.threshold!==p.threshold; });
+}
+function applyRuleUpdates(){
+  const upd=pendingRuleUpdates(), before=mileClaimByYear();
+  R().mileageRates=mergeRates(R().mileageRates,upd.map(r=>({from:r.from,r1:r.r1,r2:r.r2,threshold:r.threshold})));
+  R().seenVersion=RULES_FEED.version; R().updated=Date.now();
+  const msgs=logRecalc(before,`Applied published HMRC rates (version ${RULES_FEED.version})`);
+  save(); renderAll(); alert(msgs.length?'Rates applied. Mileage claim recalculated:\n'+msgs.join('\n'):'Rates applied. No existing journeys were affected yet.');
+}
+function dismissRuleUpdates(){ R().seenVersion=RULES_FEED.version; R().updated=Date.now(); save(); renderAll(); }
+Object.assign(window,{reconnect,syncNow,connectFolder,applyRuleUpdates,dismissRuleUpdates});
+
+/* ---------- Tabs / year ---------- */
+$('#tabs').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.wrap>section').forEach(s=>s.classList.toggle('hidden',s.id!=='tab-'+b.dataset.tab));
+  try{ localStorage.setItem('hts-tab',b.dataset.tab); }catch(e){}
+});
+$('#yearSel').addEventListener('change',e=>{YEAR=+e.target.value; renderAll();});
+$('#syncStatus').addEventListener('click',()=>{ if(SYNC.state==='needs-permission') reconnect(); });
+$('#qTable').addEventListener('click',e=>{
+  const s=e.target.dataset.sub,u=e.target.dataset.unsub; if(!s&&!u) return;
+  const key=s||u; DATA.submitted[key]={on:!!s,date:todayISO(),ts:Date.now()};
+  logChange(s?'mark':'unmark','quarter',`${key.replace('-',' ')} ${s?'marked as submitted to HMRC':'submitted mark removed'}`);
+  save(); renderAll();
+});
+
+/* ---------- Expenses ---------- */
+const expForm=$('#expForm');
+function resetExpForm(){ expForm.reset(); expForm.id.value=''; expForm.date.value=todayISO(); expForm.businessPct.value=100;
+  $('#expSubmit').textContent='Add expense'; $('#expFormTitle').textContent='Add an expense'; $('#expCancel').classList.add('hidden'); }
+expForm.addEventListener('submit',async ev=>{
+  ev.preventDefault(); const f=expForm;
+  const rec={date:f.date.value,supplier:f.supplier.value.trim(),description:f.description.value.trim(),category:f.category.value,paidWith:f.paidWith.value,
+    receiptRef:f.receiptRef.value.trim(),cost:round2(+f.cost.value),businessPct:Math.min(100,Math.max(0,+f.businessPct.value)),job:f.job.value.trim(),notes:f.notes.value.trim(),updated:Date.now()};
+  let id=f.id.value,ex=DATA.expenses.find(e=>e.id===id); const sum=`${fmtDate(rec.date)} ${rec.supplier} – ${rec.description} ${gbp(rec.cost)}`;
+  if(ex){ Object.assign(ex,rec); logChange('edit','expense',sum); }
+  else { id=uid(); ex={id,...rec,created:Date.now()}; DATA.expenses.push(ex); logChange('add','expense',sum); }
+  const file=f.receipt.files[0];
+  if(file){ try{ await idb.put(id,{name:file.name,data:await fileToDataUrl(file)}); ex.hasReceipt=true; }catch(e){ alert('Receipt image could not be stored: '+e.message); } }
+  YEAR=taxYearOf(rec.date); save(); resetExpForm(); renderAll();
+  $('#expHint').textContent='Saved ✓'; setTimeout(()=>$('#expHint').textContent='',2000);
+});
+$('#expCancel').onclick=resetExpForm;
+['input','change'].forEach(ev=>['#expSearch','#expCatFilter','#expQFilter'].forEach(s=>$(s).addEventListener(ev,renderExpenses)));
+$('#expTable').addEventListener('click',async e=>{
+  const ed=e.target.dataset.editExp,del=e.target.dataset.delExp,rc=e.target.dataset.rcpt;
+  if(ed){ const x=DATA.expenses.find(i=>i.id===ed),f=expForm;
+    ['id','date','supplier','description','category','paidWith','receiptRef','cost','businessPct','job','notes'].forEach(k=>f[k].value=x[k]??'');
+    $('#expSubmit').textContent='Save changes'; $('#expFormTitle').textContent='Edit expense'; $('#expCancel').classList.remove('hidden'); f.scrollIntoView({behavior:'smooth'}); }
+  if(del){ const x=DATA.expenses.find(i=>i.id===del); if(!confirm(`Delete ${x.supplier} – ${x.description} (${gbp(x.cost)})?`)) return;
+    DATA.expenses=DATA.expenses.filter(i=>i.id!==del); DATA.deleted[del]=Date.now();
+    logChange('delete','expense',`${fmtDate(x.date)} ${x.supplier} – ${x.description} ${gbp(x.cost)}`); save(); renderAll(); }
+  if(rc){ const r=await getReceipt(rc); if(!r) return alert('Receipt image not found on this computer. Connect your data folder to fetch it.');
+    $('#rcptBody').innerHTML=r.data.startsWith('data:application/pdf')?`<p><a href="${r.data}" download="${esc(r.name)}">Download ${esc(r.name)}</a></p>`:`<img src="${r.data}" alt="Receipt">`;
+    $('#rcptDlg').showModal(); }
+});
+
+/* ---------- Mileage ---------- */
+const milForm=$('#milForm');
+function resetMilForm(){ milForm.reset(); milForm.id.value=''; milForm.date.value=todayISO();
+  $('#milSubmit').textContent='Add journey'; $('#milFormTitle').textContent='Add a journey'; $('#milCancel').classList.add('hidden'); }
+milForm.addEventListener('submit',ev=>{
+  ev.preventDefault(); const f=milForm;
+  const rec={date:f.date.value,from:f.from.value.trim(),to:f.to.value.trim(),ret:f.ret.value.trim(),job:f.job.value.trim(),location:f.location.value.trim(),miles:+f.miles.value,business:f.business.value==='yes',updated:Date.now()};
+  const ex=DATA.journeys.find(j=>j.id===f.id.value),sum=`${fmtDate(rec.date)} ${rec.from} → ${rec.to} ${rec.miles} mi (${rec.business?'business':'private'})`;
+  if(ex){ Object.assign(ex,rec); logChange('edit','journey',sum); }
+  else { DATA.journeys.push({id:uid(),...rec,created:Date.now()}); logChange('add','journey',sum); }
+  YEAR=taxYearOf(rec.date); save(); resetMilForm(); renderAll();
+  $('#milHint').textContent='Saved ✓'; setTimeout(()=>$('#milHint').textContent='',2000);
+});
+$('#milCancel').onclick=resetMilForm;
+$('#milRepeat').onclick=()=>{
+  const all=journeyCalc(),last=all.filter(j=>+j.miles>0).pop(); if(!last) return; const f=milForm;
+  ['from','to','ret','job','location','miles'].forEach(k=>f[k].value=last[k]??''); f.business.value=last.business?'yes':'no';
+  const d=new Date(all[all.length-1].date+'T12:00:00'); d.setDate(d.getDate()+1); f.date.value=d.toISOString().slice(0,10);
+};
+$('#milTable').addEventListener('click',e=>{
+  const ed=e.target.dataset.editMil,del=e.target.dataset.delMil;
+  if(ed){ const x=DATA.journeys.find(i=>i.id===ed),f=milForm;
+    ['id','date','from','to','ret','job','location','miles'].forEach(k=>f[k].value=x[k]??''); f.business.value=x.business?'yes':'no';
+    $('#milSubmit').textContent='Save changes'; $('#milFormTitle').textContent='Edit journey'; $('#milCancel').classList.remove('hidden'); f.scrollIntoView({behavior:'smooth'}); }
+  if(del){ const x=DATA.journeys.find(i=>i.id===del); if(!confirm(`Delete journey on ${fmtDate(x.date)} (${x.miles} miles)? Odometer readings after it will move.`)) return;
+    DATA.journeys=DATA.journeys.filter(i=>i.id!==del); DATA.deleted[del]=Date.now();
+    logChange('delete','journey',`${fmtDate(x.date)} ${x.from} → ${x.to} ${x.miles} mi`); save(); renderAll(); }
+});
+
+/* ---------- Rates & categories ---------- */
+$('#rateForm').addEventListener('submit',e=>{
+  e.preventDefault(); const f=e.target,before=mileClaimByYear();
+  const r={from:f.from.value,r1:+f.r1.value,r2:+f.r2.value,threshold:+f.threshold.value};
+  const existed=R().mileageRates.some(x=>x.from===r.from);
+  R().mileageRates=mergeRates(R().mileageRates,[r]); R().updated=Date.now();
+  const msgs=logRecalc(before,`${existed?'Changed':'Added'} mileage rate from ${fmtDate(r.from)}: ${pence(r.r1)} up to ${num(r.threshold)} miles, then ${pence(r.r2)}`);
+  save(); f.reset(); f.threshold.value=10000; renderAll();
+  $('#rateHint').textContent=msgs.length?`Recalculated – ${msgs.join('; ')}`:'Saved. No existing journeys are affected yet.';
+});
+$('#rateTable').addEventListener('change',e=>{
+  const fld=e.target.dataset.f; if(!fld) return;
+  const from=e.target.closest('tr').dataset.from,r=R().mileageRates.find(x=>x.from===from),before=mileClaimByYear();
+  r[fld]=+e.target.value; R().updated=Date.now();
+  const msgs=logRecalc(before,`Edited mileage rate from ${fmtDate(from)}: ${pence(r.r1)} up to ${num(r.threshold)} miles, then ${pence(r.r2)}`);
+  save(); renderAll(); $('#rateHint').textContent=msgs.length?`Recalculated – ${msgs.join('; ')}`:'Saved. No existing journeys affected.';
+});
+$('#rateTable').addEventListener('click',e=>{
+  const from=e.target.dataset.delRate; if(!from) return;
+  if(!confirm(`Remove the rate that applies from ${fmtDate(from)}? Journeys it covered will use the previous rate.`)) return;
+  const before=mileClaimByYear(); R().mileageRates=R().mileageRates.filter(r=>r.from!==from); R().updated=Date.now();
+  const msgs=logRecalc(before,`Removed mileage rate from ${fmtDate(from)}`); save(); renderAll();
+  $('#rateHint').textContent=msgs.length?`Recalculated – ${msgs.join('; ')}`:'Removed.';
+});
+$('#catTable').addEventListener('change',e=>{
+  const ni=e.target.dataset.catName,hi=e.target.dataset.catHead;
+  if(ni!==undefined){ const c=R().categories[ni],old=c.name,nw=e.target.value.trim();
+    if(!nw||R().categories.some((x,i)=>x.name===nw&&i!=ni)){ alert('That name is empty or already used.'); return renderRules(); }
+    c.name=nw; let n=0; DATA.expenses.forEach(x=>{ if(x.category===old){ x.category=nw; x.updated=Date.now(); n++; } });
+    logChange('rename','category',`"${old}" renamed to "${nw}" (${n} expenses updated)`); }
+  if(hi!==undefined){ const c=R().categories[hi]; c.heading=e.target.value; logChange('edit','category',`"${c.name}" now counts under "${HMRC[c.heading]}"`); }
+  R().updated=Date.now(); save(); renderAll();
+});
+$('#catTable').addEventListener('click',e=>{
+  const i=e.target.dataset.delCat; if(i===undefined) return; const c=R().categories[i];
+  R().categories.splice(i,1); R().updated=Date.now(); logChange('remove','category',`"${c.name}"`); save(); renderAll();
+});
+$('#catForm').addEventListener('submit',e=>{
+  e.preventDefault(); const f=e.target,name=f.name.value.trim();
+  if(R().categories.some(c=>c.name===name)) return alert('That category already exists.');
+  R().categories.push({name,heading:f.heading.value}); R().updated=Date.now();
+  logChange('add','category',`"${name}" under "${HMRC[f.heading.value]}"`); save(); f.reset(); renderAll();
+});
+$('#checkRulesBtn').onclick=()=>checkRules(true);
+
+/* ---------- Settings ---------- */
+$('#setForm').addEventListener('submit',e=>{
+  e.preventDefault(); const f=e.target,s=S();
+  ['company','owner','utr','vehicleReg','vehicle','openingDate'].forEach(k=>s[k]=f[k].value.trim());
+  s.openingOdo=+f.openingOdo.value||0; s.updated=Date.now();
+  logChange('edit','settings','Business details updated'); save(); renderAll();
+  $('#setHint').textContent='Saved ✓'; setTimeout(()=>$('#setHint').textContent='',2000);
+});
+
+/* ---------- Transfer / backup file ---------- */
+async function backup(){
+  const receipts={}; try{ for(const k of await idb.keys()) receipts[k]=await idb.get(k); }catch(e){}
+  DATA.lastBackup=Date.now(); logChange('save','transfer file',`Saved transfer file (${DATA.expenses.length} expenses, ${DATA.journeys.length} journeys)`); save();
+  download(`HTS-ledger-${todayISO()}.json`,JSON.stringify({app:'hts-ledger',version:2,savedBy:DEVICE,savedAt:Date.now(),data:DATA,receipts}),'application/json');
+  renderAll();
+}
+window.backup=backup;
+$('#backupBtn').onclick=backup;
+$('#restoreFile').addEventListener('change',async e=>{
+  const file=e.target.files[0]; if(!file) return;
+  try{
+    const b=JSON.parse(await file.text()); if(b.app!=='hts-ledger') throw new Error('This is not a file from this app.');
+    const inc=migrate(b.data);
+    if(!confirm(`Combine "${file.name}" (${inc.expenses.length} expenses, ${inc.journeys.length} journeys) with the records on this computer? Where the same entry exists on both, the most recently edited version is kept.`)) return;
+    const before=[DATA.expenses.length,DATA.journeys.length];
+    DATA=mergeData(DATA,inc);
+    for(const [k,v] of Object.entries(b.receipts||{})) if(v) await idb.put(k,v);
+    logChange('load','transfer file',`Combined ${file.name}: expenses ${before[0]}→${DATA.expenses.length}, journeys ${before[1]}→${DATA.journeys.length}`);
+    save(); renderAll(); alert(`Done. You now have ${DATA.expenses.length} expenses and ${DATA.journeys.length} journeys.`);
+  }catch(err){ alert('Could not load: '+err.message); }
+  e.target.value='';
+});
+$('#connectBtn').onclick=connectFolder; $('#reconnectBtn').onclick=reconnect; $('#syncNowBtn').onclick=syncNow; $('#disconnectBtn').onclick=disconnect;
+
+/* ---------- Exports ---------- */
+function exportRows(){
+  const {exps,jrn}=yearData(YEAR),t=totals(exps,jrn),s=S();
+  const expRows=exps.map(e=>({Date:fmtDate(e.date),Quarter:'Q'+quarterOf(e.date,YEAR),Supplier:e.supplier,Description:e.description,Category:e.category,'HMRC heading':HMRC[catHeading(e.category)],
+    'Paid with':e.paidWith,'Receipt ref':e.receiptRef,'Receipt image held':e.hasReceipt?'Yes':'No','Cost (£)':+e.cost,'Business %':+e.businessPct,'Allowable (£)':expClaim(e),'Job / client':e.job||'',Notes:e.notes||''}));
+  const milRows=jrn.map(j=>({Date:fmtDate(j.date),Quarter:'Q'+quarterOf(j.date,YEAR),From:j.from,To:j.to,Return:j.ret,'Job / client':j.job,'Location / purpose':j.location,Miles:+j.miles,
+    'Start odometer':j.start,'End odometer':j.end,Business:j.business?'Yes':'No','Miles at higher rate':j.r1m,'Higher rate (£)':j.rate?.r1??'','Miles at lower rate':j.r2m,'Lower rate (£)':j.rate?.r2??'','Claim (£)':j.claim}));
+  const sumRows=[
+    {Item:'Business',Value:s.company},{Item:'Proprietor',Value:s.owner},{Item:'UTR',Value:s.utr},
+    {Item:'Tax year',Value:`${tyLabel(YEAR)} (6 Apr ${YEAR} – 5 Apr ${YEAR+1})`},
+    {Item:'Vehicle',Value:[s.vehicle,s.vehicleReg].filter(Boolean).join(' – ')},
+    {Item:'Mileage rates',Value:ratesText(YEAR)},
+    {Item:'Business miles',Value:t.bizMiles},{Item:'Private miles',Value:t.privMiles},{Item:'',Value:''},
+    ...HMRC_ORDER.map(k=>({Item:HMRC[k],Value:t.hmrc[k]})),
+    {Item:'TOTAL ALLOWABLE EXPENSES',Value:t.grand},{Item:'',Value:''},
+    ...quarters(YEAR).map(q=>{const qt=totals(exps.filter(e=>e.date>=q.from&&e.date<=q.to),jrn.filter(j=>j.date>=q.from&&j.date<=q.to));return {Item:`Q${q.q} ${fmtDate(q.from)}–${fmtDate(q.to)} (due ${fmtDate(q.due)})`,Value:qt.grand};}),
+    {Item:'',Value:''},{Item:'Generated',Value:new Date().toLocaleString('en-GB')}
+  ];
+  const logRows=DATA.log.map(l=>({When:fmtTs(l.ts),Computer:l.device||'',Action:`${l.action} ${l.what}`,Detail:l.summary}));
+  return {sumRows,expRows,milRows,logRows};
+}
+$('#xlsxBtn').onclick=()=>{
+  if(!window.XLSX){ alert('The Excel tool could not load. Use "Download CSV files" instead – they open in Excel too.'); return; }
+  const {sumRows,expRows,milRows,logRows}=exportRows(),wb=XLSX.utils.book_new();
+  const add=(rows,name,widths)=>{ const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{Note:'No entries'}]); ws['!cols']=widths.map(w=>({wch:w})); XLSX.utils.book_append_sheet(wb,ws,name); };
+  add(sumRows,'Summary',[48,60]); add(expRows,'Expenses',[11,8,22,30,22,32,18,12,10,10,9,12,18,24]);
+  add(milRows,'Mileage',[11,8,14,16,10,12,18,8,12,12,9,10,9,10,9,10]); add(logRows,'Change log',[20,12,18,70]);
+  XLSX.writeFile(wb,`${(S().company||'Business').replace(/\W+/g,'_')}_Expenses_Mileage_${tyLabel(YEAR).replace('/','-')}.xlsx`);
+};
+function toCSV(rows){ if(!rows.length) return ''; const h=Object.keys(rows[0]); const q=v=>`"${String(v??'').replace(/"/g,'""')}"`; return [h.map(q).join(','),...rows.map(r=>h.map(k=>q(r[k])).join(','))].join('\r\n'); }
+$('#csvBtn').onclick=()=>{
+  const {sumRows,expRows,milRows}=exportRows(),y=tyLabel(YEAR).replace('/','-');
+  download(`Summary_${y}.csv`,'﻿'+toCSV(sumRows),'text/csv');
+  setTimeout(()=>download(`Expenses_${y}.csv`,'﻿'+toCSV(expRows),'text/csv'),300);
+  setTimeout(()=>download(`Mileage_${y}.csv`,'﻿'+toCSV(milRows),'text/csv'),600);
+};
+$('#zipRcptBtn').onclick=async()=>{
+  const {exps}=yearData(YEAR),withR=exps.filter(e=>e.hasReceipt);
+  if(!withR.length) return alert('No receipt images stored for this tax year.');
+  for(const [i,e] of withR.entries()){ const r=await getReceipt(e.id); if(!r) continue;
+    const blob=await dataUrlToBlob(r.data); const name=`${e.date}_${(e.supplier||'receipt').replace(/\W+/g,'_')}_${rcptName(e.id.slice(-4),r.data)}`;
+    setTimeout(()=>download(name,blob),i*300); }
+};
+$('#printBtn').onclick=()=>{
+  const {exps,jrn}=yearData(YEAR),t=totals(exps,jrn),s=S();
+  const qrows=quarters(YEAR).map(q=>{const qt=totals(exps.filter(e=>e.date>=q.from&&e.date<=q.to),jrn.filter(j=>j.date>=q.from&&j.date<=q.to));
+    return `<tr><td>Q${q.q}</td><td>${fmtDate(q.from)} – ${fmtDate(q.to)}</td><td class="num">${gbp(qt.expTotal)}</td><td class="num">${num(qt.bizMiles)}</td><td class="num">${gbp(qt.mileClaim)}</td><td class="num">${gbp(qt.grand)}</td></tr>`;}).join('');
+  $('#printArea').innerHTML=`
+    <h1>${esc(s.company)}</h1>
+    <div>Record of business expenses and business mileage – tax year ${tyLabel(YEAR)} (6 April ${YEAR} to 5 April ${YEAR+1})</div>
+    <div style="margin-top:6px">${s.owner?`Proprietor: ${esc(s.owner)} · `:''}${s.utr?`UTR: ${esc(s.utr)} · `:''}${s.vehicle||s.vehicleReg?`Vehicle: ${esc([s.vehicle,s.vehicleReg].filter(Boolean).join(' – '))} · `:''}Generated ${new Date().toLocaleString('en-GB')}</div>
+    <h2>1. Summary by HMRC expense heading</h2><table>${hmrcTableHTML(t)}</table>
+    <h2>2. Quarterly totals</h2>
+    <table><tr><th>Quarter</th><th>Period</th><th class="num">Expenses</th><th class="num">Business miles</th><th class="num">Mileage</th><th class="num">Total</th></tr>${qrows}
+    <tr class="total"><td colspan="2">Year</td><td class="num">${gbp(t.expTotal)}</td><td class="num">${num(t.bizMiles)}</td><td class="num">${gbp(t.mileClaim)}</td><td class="num">${gbp(t.grand)}</td></tr></table>
+    <p>Mileage basis: HMRC approved mileage rates – ${esc(ratesText(YEAR))}. Business miles ${num(t.bizMiles)}; private miles ${num(t.privMiles)}. No separate fuel or vehicle running costs are claimed for this vehicle.</p>
+    <h2 class="pb">3. Expense ledger (${exps.length} items)</h2>
+    <table><tr><th>Date</th><th>Supplier</th><th>Description</th><th>Category</th><th>Paid with</th><th>Receipt ref</th><th class="num">Cost</th><th class="num">Bus %</th><th class="num">Allowable</th></tr>
+    ${exps.map(e=>`<tr><td>${fmtDate(e.date)}</td><td>${esc(e.supplier)}</td><td>${esc(e.description)}${e.notes?` – ${esc(e.notes)}`:''}</td><td>${esc(e.category)}</td><td>${esc(e.paidWith)}</td><td>${esc(e.receiptRef)}${e.hasReceipt?' (image held)':''}</td><td class="num">${gbp(e.cost)}</td><td class="num">${e.businessPct}%</td><td class="num">${gbp(expClaim(e))}</td></tr>`).join('')||'<tr><td colspan="9">No expenses recorded.</td></tr>'}
+    <tr class="total"><td colspan="6">Total</td><td class="num">${gbp(t.cost)}</td><td></td><td class="num">${gbp(t.expTotal)}</td></tr></table>
+    <h2 class="pb">4. Mileage log (${jrn.length} entries)</h2>
+    <table><tr><th>Date</th><th>From</th><th>To</th><th>Return</th><th>Job</th><th>Location / purpose</th><th class="num">Miles</th><th class="num">Start odo</th><th class="num">End odo</th><th>Business</th><th class="num">Claim</th></tr>
+    ${jrn.map(j=>`<tr><td>${fmtDate(j.date)}</td><td>${esc(j.from)}</td><td>${esc(j.to)}</td><td>${esc(j.ret)}</td><td>${esc(j.job)}</td><td>${esc(j.location)}</td><td class="num">${num(j.miles)}</td><td class="num">${num(j.start)}</td><td class="num">${num(j.end)}</td><td>${j.business?'Yes':'No'}</td><td class="num">${j.business?gbp(j.claim):'–'}</td></tr>`).join('')}
+    <tr class="total"><td colspan="6">Total</td><td class="num">${num(t.bizMiles+t.privMiles)}</td><td colspan="3"></td><td class="num">${gbp(t.mileClaim)}</td></tr></table>
+    <h2 class="pb">5. Change log</h2>
+    <table><tr><th>When</th><th>Computer</th><th>Action</th><th>Detail</th></tr>${DATA.log.map(l=>`<tr><td>${fmtTs(l.ts)}</td><td>${esc(l.device||'')}</td><td>${esc(l.action)} ${esc(l.what)}</td><td>${esc(l.summary)}</td></tr>`).join('')}</table>
+    <p style="margin-top:24px">I confirm these records are a true and complete account of the business expenses and business mileage of ${esc(s.company)} for the period shown.</p>
+    <p style="margin-top:30px">Signed ______________________________ &nbsp;&nbsp; Date ______________</p>`;
+  window.print();
+};
+
+/* ---------- Start ---------- */
+resetExpForm(); resetMilForm();
+renderAll();
+try{ const t=localStorage.getItem('hts-tab'); if(t) document.querySelector(`#tabs button[data-tab="${t}"]`)?.click(); }catch(e){}
+restoreFolder();
+checkRules(false);
+if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>

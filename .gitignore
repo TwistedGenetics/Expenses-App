@@ -1,0 +1,7 @@
+# Never commit your records – they live in your OneDrive data folder
+data.json
+HTS-ledger-*.json
+receipts/
+private/
+.DS_Store
+.claude/

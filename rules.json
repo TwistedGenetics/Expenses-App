@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "published": "2026-10-30",
+  "mileageRates": [
+    { "from": "2011-04-06", "r1": 0.45, "r2": 0.25, "threshold": 10000 },
+    { "from": "2026-04-06", "r1": 0.55, "r2": 0.25, "threshold": 10000 }
+  ],
+  "notes": [
+    "HMRC approved mileage rates for cars and vans. 2026/27: 55p for the first 10,000 business miles, 25p after."
+  ]
+}
